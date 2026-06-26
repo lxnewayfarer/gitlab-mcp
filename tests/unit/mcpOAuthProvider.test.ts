@@ -24,7 +24,7 @@ function deps(over: any = {}) {
       consume: vi.fn(),
     },
     sessions: { validate: vi.fn(), revoke: vi.fn() },
-    refresh: { issue: vi.fn(async () => ({ token: "rt", expiresAt: new Date(Date.now() + 1e6) })), validate: vi.fn(), rotate: vi.fn(), revoke: vi.fn() },
+    refresh: { issue: vi.fn(async () => ({ token: "rt", expiresAt: new Date(Date.now() + 1e6) })), validate: vi.fn(), rotate: vi.fn(), revoke: vi.fn(), revokeAllForUser: vi.fn() },
     users: { findById: vi.fn(async () => ({ id: "u1" })) },
     stateStore: {},
     startLogin: vi.fn(async () => "https://gitlab.example/oauth/authorize?x=1"),
@@ -155,12 +155,72 @@ describe("mcpOAuthProvider", () => {
       refresh: {
         validate: vi.fn(async () => ({ userId: "u1", clientId: "c1" })),
         rotate: vi.fn(async () => ({ token: "rt2", expiresAt: new Date(Date.now() + 1e6) })),
-        issue: vi.fn(), revoke: vi.fn(),
+        issue: vi.fn(), revoke: vi.fn(), revokeAllForUser: vi.fn(),
       },
       sessions: { issue: vi.fn(async () => ({ token: "sess2", expiresAt: new Date(Date.now() + 1e6) })), validate: vi.fn(), revoke: vi.fn() },
     });
     const p = mcpOAuthProvider(d as any);
     await p.exchangeRefreshToken(client, "old-rt");
     expect(d.refresh.rotate).toHaveBeenCalledWith("old-rt", "u1", "c1");
+  });
+
+  // --- revokeToken cascade tests ---
+
+  it("revokeToken: revoking an access (session) token also revokes all user refresh tokens", async () => {
+    const expiresAt = new Date(Date.now() + 1e6);
+    const d = deps({
+      sessions: {
+        validate: vi.fn(async () => ({ sessionId: "s1", userId: "u1", expiresAt })),
+        revoke: vi.fn(async () => undefined),
+      },
+      refresh: {
+        validate: vi.fn(async () => null), // not a refresh token
+        revoke: vi.fn(), rotate: vi.fn(), issue: vi.fn(),
+        revokeAllForUser: vi.fn(async () => undefined),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await p.revokeToken(client, { token: "access-token" });
+    expect(d.sessions.revoke).toHaveBeenCalledWith("access-token");
+    expect(d.refresh.revokeAllForUser).toHaveBeenCalledWith("u1");
+  });
+
+  it("revokeToken: revoking a refresh token revokes it and all user refresh tokens", async () => {
+    const d = deps({
+      refresh: {
+        validate: vi.fn(async () => ({ userId: "u1", clientId: "c1" })),
+        revoke: vi.fn(async () => undefined),
+        revokeAllForUser: vi.fn(async () => undefined),
+        rotate: vi.fn(), issue: vi.fn(),
+      },
+      sessions: {
+        validate: vi.fn(async () => null), // not a session token
+        revoke: vi.fn(),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await p.revokeToken(client, { token: "refresh-token" });
+    expect(d.refresh.revoke).toHaveBeenCalledWith("refresh-token");
+    expect(d.refresh.revokeAllForUser).toHaveBeenCalledWith("u1");
+    // session revoke must NOT be called (was a refresh token path)
+    expect(d.sessions.revoke).not.toHaveBeenCalled();
+  });
+
+  it("revokeToken: unknown/garbage token is a silent no-op (RFC 7009)", async () => {
+    const d = deps({
+      refresh: {
+        validate: vi.fn(async () => null),
+        revoke: vi.fn(), revokeAllForUser: vi.fn(), rotate: vi.fn(), issue: vi.fn(),
+      },
+      sessions: {
+        validate: vi.fn(async () => null),
+        revoke: vi.fn(),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await expect(p.revokeToken(client, { token: "garbage-token" })).resolves.toBeUndefined();
+    expect(d.sessions.revoke).not.toHaveBeenCalled();
+    expect(d.refresh.revoke).not.toHaveBeenCalled();
+    expect(d.refresh.revokeAllForUser).not.toHaveBeenCalled();
   });
 });

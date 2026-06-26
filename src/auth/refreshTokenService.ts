@@ -37,5 +37,10 @@ export function refreshTokenService(deps?: {
       await repo.revokeByHash(sha256(oldToken), new Date());
       return this.issue(userId, clientId);
     },
+
+    /** Revoke all refresh tokens belonging to a user (e.g. on logout). */
+    async revokeAllForUser(userId: string): Promise<void> {
+      await repo.revokeAllForUser(userId, new Date());
+    },
   };
 }

@@ -148,9 +148,28 @@ export function mcpOAuthProvider(deps?: {
       _client: OAuthClientInformationFull,
       request: OAuthTokenRevocationRequest,
     ): Promise<void> {
-      // Best-effort: try both, since we do not know the token type for sure.
-      await refresh.revoke(request.token).catch(() => undefined);
-      await sessions.revoke(request.token).catch(() => undefined);
+      // RFC 7009: revocation must be best-effort — never throw for unknown/garbage tokens.
+      // Cascade: resolve userId from whichever token type was presented, then revoke
+      // that token AND all refresh tokens for the user so the rotation chain is fully severed.
+      const token = request.token;
+
+      // Try as refresh token first.
+      const refreshCtx = await refresh.validate(token).catch(() => null);
+      if (refreshCtx) {
+        await refresh.revoke(token).catch(() => undefined);
+        await refresh.revokeAllForUser(refreshCtx.userId).catch(() => undefined);
+        return;
+      }
+
+      // Try as access (session) token.
+      const sessionCtx = await sessions.validate(token).catch(() => null);
+      if (sessionCtx) {
+        await sessions.revoke(token).catch(() => undefined);
+        await refresh.revokeAllForUser(sessionCtx.userId).catch(() => undefined);
+        return;
+      }
+
+      // Unknown/garbage token — silently ignore per RFC 7009.
     },
   };
 }
