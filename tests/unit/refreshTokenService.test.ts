@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { setConfig, loadConfig } from "../../src/config/index.js";
 import { sha256 } from "../../src/auth/crypto.js";
 import { refreshTokenService } from "../../src/auth/refreshTokenService.js";
