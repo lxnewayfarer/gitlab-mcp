@@ -108,16 +108,59 @@ describe("mcpOAuthProvider", () => {
   });
 
   it("verifyAccessToken returns AuthInfo for a valid session", async () => {
-    const d = deps({ sessions: { validate: vi.fn(async () => ({ sessionId: "s1", userId: "u1" })), revoke: vi.fn() } });
+    const expiresAt = new Date(Date.now() + 1e6);
+    const d = deps({ sessions: { validate: vi.fn(async () => ({ sessionId: "s1", userId: "u1", expiresAt })), revoke: vi.fn() } });
     const p = mcpOAuthProvider(d as any);
     const info = await p.verifyAccessToken("tok");
     expect(info.token).toBe("tok");
     expect(info.extra?.userId).toBe("u1");
+    expect(typeof info.expiresAt).toBe("number");
+    expect(info.expiresAt).toBe(Math.floor(expiresAt.getTime() / 1000));
   });
 
   it("verifyAccessToken throws for an invalid session", async () => {
     const d = deps({ sessions: { validate: vi.fn(async () => null), revoke: vi.fn() } });
     const p = mcpOAuthProvider(d as any);
     await expect(p.verifyAccessToken("bad")).rejects.toThrow();
+  });
+
+  it("exchangeAuthorizationCode rejects a code bound to a different clientId", async () => {
+    const verifier = "verifier-other";
+    const d = deps({
+      codeStore: {
+        consume: vi.fn(async () => ({
+          clientId: "other-client", redirectUri: "http://localhost:7777/cb",
+          codeChallenge: s256(verifier), sessionId: "s1", userId: "u1", sessionToken: "the-session",
+        })),
+        peekChallenge: vi.fn(), issue: vi.fn(),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await expect(p.exchangeAuthorizationCode(client, "code", verifier, "http://localhost:7777/cb")).rejects.toThrow();
+  });
+
+  it("exchangeRefreshToken rejects a refresh token bound to a different clientId", async () => {
+    const d = deps({
+      refresh: {
+        validate: vi.fn(async () => ({ userId: "u1", clientId: "other-client" })),
+        rotate: vi.fn(), issue: vi.fn(), revoke: vi.fn(),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await expect(p.exchangeRefreshToken(client, "old-rt")).rejects.toThrow();
+  });
+
+  it("exchangeRefreshToken rotation calls rotate with correct args", async () => {
+    const d = deps({
+      refresh: {
+        validate: vi.fn(async () => ({ userId: "u1", clientId: "c1" })),
+        rotate: vi.fn(async () => ({ token: "rt2", expiresAt: new Date(Date.now() + 1e6) })),
+        issue: vi.fn(), revoke: vi.fn(),
+      },
+      sessions: { issue: vi.fn(async () => ({ token: "sess2", expiresAt: new Date(Date.now() + 1e6) })), validate: vi.fn(), revoke: vi.fn() },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await p.exchangeRefreshToken(client, "old-rt");
+    expect(d.refresh.rotate).toHaveBeenCalledWith("old-rt", "u1", "c1");
   });
 });

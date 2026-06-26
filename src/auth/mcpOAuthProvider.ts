@@ -133,6 +133,8 @@ export function mcpOAuthProvider(deps?: {
         token,
         clientId: "", // not tracked per-session; resource server does not need it
         scopes: [],
+        // SDK bearerAuth middleware requires expiresAt as Unix seconds (number).
+        expiresAt: Math.floor(ctx.expiresAt.getTime() / 1000),
         extra: { userId: ctx.userId, sessionId: ctx.sessionId },
       };
     },
