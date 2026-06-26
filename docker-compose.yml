@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gitlab_mcp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gitlab_mcp}
+      POSTGRES_DB: ${POSTGRES_DB:-gitlab_mcp}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gitlab_mcp}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gitlab_mcp}:${POSTGRES_PASSWORD:-gitlab_mcp}@postgres:5432/${POSTGRES_DB:-gitlab_mcp}?schema=public
+      REDIS_URL: redis://redis:6379
+      GITLAB_BASE_URL: ${GITLAB_BASE_URL:-https://gitlab.com}
+      GITLAB_CLIENT_ID: ${GITLAB_CLIENT_ID}
+      GITLAB_CLIENT_SECRET: ${GITLAB_CLIENT_SECRET}
+      GITLAB_REDIRECT_URI: ${GITLAB_REDIRECT_URI:-http://localhost:3000/auth/callback}
+      GITLAB_SCOPES: ${GITLAB_SCOPES:-read_user api}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      TOKEN_REFRESH_SKEW_SECONDS: ${TOKEN_REFRESH_SKEW_SECONDS:-60}
+    ports:
+      - "${PORT:-3000}:3000"
+
+volumes:
+  pgdata:
+  redisdata:
