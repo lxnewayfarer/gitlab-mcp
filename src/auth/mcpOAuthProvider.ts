@@ -46,6 +46,11 @@ export function mcpOAuthProvider(deps?: {
   const startLogin = deps?.startLogin ?? startGitLabLogin;
 
   return {
+    // Tell the SDK's token handler to skip its own PKCE verification and pass
+    // the code_verifier through to exchangeAuthorizationCode, which performs its
+    // own S256 check. This keeps all PKCE logic in one place.
+    skipLocalPkceValidation: true as const,
+
     get clientsStore(): OAuthRegisteredClientsStore {
       return clients;
     },
