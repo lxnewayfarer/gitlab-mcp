@@ -493,6 +493,9 @@ describe("MCP OAuth end-to-end", () => {
     const { access_token, refresh_token } = tokenRes.body;
     expect(access_token).toBeTruthy();
     expect(refresh_token).toBeTruthy();
+    // Fix 2: The client receives our session token, NOT the GitLab access token.
+    // "gl-access" is the stub value returned by the fake exchangeCode function above.
+    expect(access_token).not.toBe("gl-access");
 
     // ── Step 5a: Access token works at /mcp (not 401) ─────────────────────────
     const mcpRes = await request(app)
@@ -593,5 +596,113 @@ describe("MCP OAuth end-to-end", () => {
       .set("Content-Type", "application/json")
       .send({ jsonrpc: "2.0", method: "ping", id: 5 });
     expect(garbageRes.status).toBe(401);
+  });
+
+  it("POST /token with wrong code_verifier is rejected (PKCE enforcement e2e)", async () => {
+    // Fix 1: Guard against a regression of skipLocalPkceValidation where PKCE
+    // enforcement lives entirely in exchangeAuthorizationCode.  A correct
+    // code_verifier must succeed; a present-but-wrong one must be rejected.
+    //
+    // The authorization code is single-use (consumed on the first consume() call,
+    // even when the subsequent PKCE check fails).  We therefore run a completely
+    // independent DCR→/authorize→/auth/callback chain here to mint a fresh code
+    // for the wrong-verifier attempt — we cannot reuse a code consumed by a
+    // previous test.
+
+    const stores = makeInMemoryStores();
+    const app = buildTestApp(stores);
+
+    // ── Register a client ─────────────────────────────────────────────────────
+    const regRes = await request(app)
+      .post("/register")
+      .set("Content-Type", "application/json")
+      .send({
+        redirect_uris: [CLIENT_REDIRECT],
+        grant_types: ["authorization_code", "refresh_token"],
+        token_endpoint_auth_method: "none",
+      });
+    expect(regRes.status).toSatisfy((s: number) => s === 200 || s === 201);
+    const clientId: string = regRes.body.client_id;
+
+    // ── Helper: run /authorize → /auth/callback → return fresh code ──────────
+    async function mintFreshCode(): Promise<string> {
+      const authRes = await request(app)
+        .get(
+          `/authorize?response_type=code` +
+            `&client_id=${encodeURIComponent(clientId)}` +
+            `&redirect_uri=${encodeURIComponent(CLIENT_REDIRECT)}` +
+            `&code_challenge=${encodeURIComponent(challenge)}` +
+            `&code_challenge_method=S256` +
+            `&state=${encodeURIComponent(CLIENT_STATE)}` +
+            `&scope=mcp`,
+        )
+        .redirects(0);
+      expect(authRes.status).toBe(302);
+      const internalState = new URL(authRes.headers.location).searchParams.get("state")!;
+
+      const cbRes = await request(app)
+        .get(`/auth/callback?code=gl-code&state=${encodeURIComponent(internalState)}`)
+        .redirects(0);
+      expect(cbRes.status).toBe(302);
+      const code = new URL(cbRes.headers.location).searchParams.get("code");
+      expect(code).toBeTruthy();
+      return code!;
+    }
+
+    // ── Attempt 1: wrong verifier → must be rejected ──────────────────────────
+    const badCode = await mintFreshCode();
+
+    const badRes = await request(app)
+      .post("/token")
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: badCode,
+        code_verifier: "wrong-verifier-that-does-not-match",
+        client_id: clientId,
+        redirect_uri: CLIENT_REDIRECT,
+      });
+
+    expect(
+      badRes.status,
+      `Wrong verifier must not yield 200; got ${badRes.status}: ${JSON.stringify(badRes.body)}`,
+    ).toBe(400);
+    expect(badRes.body.access_token).toBeUndefined();
+
+    // ── Code is now consumed: same code with the CORRECT verifier also fails ──
+    // exchangeAuthorizationCode calls codeStore.consume() before the PKCE check,
+    // so the code is exhausted even on PKCE failure (single-use-on-failure).
+    const sameCodeCorrectVerifier = await request(app)
+      .post("/token")
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: badCode,
+        code_verifier: verifier,
+        client_id: clientId,
+        redirect_uri: CLIENT_REDIRECT,
+      });
+    expect(sameCodeCorrectVerifier.status).not.toBe(200);
+    expect(sameCodeCorrectVerifier.body.access_token).toBeUndefined();
+
+    // ── A fresh code with the CORRECT verifier succeeds ───────────────────────
+    const goodCode = await mintFreshCode();
+
+    const goodRes = await request(app)
+      .post("/token")
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: goodCode,
+        code_verifier: verifier,
+        client_id: clientId,
+        redirect_uri: CLIENT_REDIRECT,
+      });
+
+    expect(
+      goodRes.status,
+      `Correct verifier must yield 200; got ${goodRes.status}: ${JSON.stringify(goodRes.body)}`,
+    ).toBe(200);
+    expect(goodRes.body.access_token).toBeTruthy();
   });
 });
