@@ -81,4 +81,28 @@ describe("/auth/callback OAuth branch", () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain("Connected as");
   });
+
+  it("falls back to HTML page (not 502) when pendingStore.take rejects", async () => {
+    const f = fakes();
+    await f.stateStore.save("st3", { verifier: "v" });
+    const exchangeCode = vi.fn(async () => ({ tokens: { access_token: "gl", token_type: "bearer" }, expiresAt: null }));
+    const fetchGitLabUser = vi.fn(async () => ({ id: 1, username: "alice", name: "Alice", email: null }));
+
+    // Simulate pendingStore failure (e.g. Redis unavailable)
+    const brokenPendingStore = {
+      save: async () => {},
+      take: async () => { throw new Error("Redis unavailable"); },
+    };
+
+    const app = express();
+    app.use("/auth", authRoutes({
+      stateStore: f.stateStore as any, pendingStore: brokenPendingStore as any, codeStore: f.codeStore as any,
+      sessions: f.sessions as any, users: f.users as any, accounts: f.accounts as any,
+      exchangeCode, fetchGitLabUser,
+    }));
+
+    const res = await request(app).get("/auth/callback?code=glcode&state=st3");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("Connected as");
+  });
 });
