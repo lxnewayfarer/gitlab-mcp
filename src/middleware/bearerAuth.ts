@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { getConfig } from "../config/index.js";
 import { sessionService } from "../auth/sessionService.js";
 import { userRepository } from "../repositories/userRepository.js";
@@ -27,7 +28,8 @@ export function bearerAuth(deps?: {
   return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
     const cfg = getConfig();
     const base = cfg.PUBLIC_BASE_URL.replace(/\/$/, "");
-    const challenge = `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`;
+    const metadataUrl = getOAuthProtectedResourceMetadataUrl(new URL(`${base}/mcp`));
+    const challenge = `Bearer resource_metadata="${metadataUrl}"`;
     const unauthorized = (error: string, message: string): void => {
       res.setHeader("WWW-Authenticate", challenge);
       res.status(401).json({ error, message });

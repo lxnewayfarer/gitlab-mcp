@@ -29,7 +29,7 @@ describe("bearerAuth WWW-Authenticate", () => {
     const res = mockRes();
     await mw(req as any, res as any, vi.fn());
     expect(res.statusCode).toBe(401);
-    expect(res.headers["www-authenticate"]).toContain('resource_metadata="http://localhost:3000/.well-known/oauth-protected-resource"');
+    expect(res.headers["www-authenticate"]).toContain('resource_metadata="http://localhost:3000/.well-known/oauth-protected-resource/mcp"');
   });
 
   it("sets WWW-Authenticate on invalid session", async () => {
@@ -38,6 +38,6 @@ describe("bearerAuth WWW-Authenticate", () => {
     const res = mockRes();
     await mw(req as any, res as any, vi.fn());
     expect(res.statusCode).toBe(401);
-    expect(res.headers["www-authenticate"]).toContain("Bearer");
+    expect(res.headers["www-authenticate"]).toContain('resource_metadata="http://localhost:3000/.well-known/oauth-protected-resource/mcp"');
   });
 });
