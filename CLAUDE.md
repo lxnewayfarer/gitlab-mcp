@@ -87,10 +87,10 @@ See `.env.example`. Key vars: `DATABASE_URL`, `REDIS_URL`, `GITLAB_BASE_URL`
 
 MCP clients can authenticate via the server's own OAuth 2.0 endpoints:
 - Discovery: `/.well-known/oauth-authorization-server`
-- Dynamic Client Registration: `POST /oauth/register`
-- Authorization: `GET /oauth/authorize` (redirects to GitLab login once)
-- Token exchange & refresh: `POST /oauth/token`
-- Token revocation: `POST /oauth/revoke`
+- Dynamic Client Registration: `POST /register`
+- Authorization: `GET /authorize` (redirects to GitLab login once)
+- Token exchange & refresh: `POST /token`
+- Token revocation: `POST /revoke`
 
 GitLab is the upstream identity provider; GitLab tokens never leave the server.
 The client receives opaque session tokens (access + rotating refresh tokens).
@@ -102,7 +102,7 @@ See [`docs/oauth.md`](docs/oauth.md#8-connecting-an-mcp-client-eg-claude-code-vi
 For clients without OAuth support:
 
 1. User opens `GET /auth/login` in a browser.
-2. Server redirects to GitLab `/oauth/authorize` (with `state` + PKCE).
+2. Server redirects to GitLab's OAuth authorize endpoint (with `state` + PKCE).
 3. GitLab redirects to `GET /auth/callback` → server exchanges code, fetches the
    GitLab user, stores encrypted tokens, issues an **opaque session bearer token**.
 4. User pastes that bearer token into their MCP client config as

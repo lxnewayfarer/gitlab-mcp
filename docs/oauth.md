@@ -117,8 +117,8 @@ claude mcp add --transport http gitlab http://localhost:3000/mcp
 On first use:
 
 1. The client discovers `/.well-known/oauth-authorization-server` (server metadata).
-2. The client registers itself via `POST /oauth/register` (Dynamic Client Registration).
-3. The client opens your browser to `GET /oauth/authorize`.
+2. The client registers itself via `POST /register` (Dynamic Client Registration).
+3. The client opens your browser to `GET /authorize`.
 4. You log in with **your GitLab account** (once).
 5. GitLab redirects back; the client exchanges the code for **opaque session + refresh tokens**.
 6. The client automatically refreshes tokens before expiry — no re-login needed for up to 30 days (or until the refresh token expires).
