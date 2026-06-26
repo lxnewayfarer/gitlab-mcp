@@ -1,0 +1,123 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHash } from "node:crypto";
+import { setConfig, loadConfig } from "../../src/config/index.js";
+import { mcpOAuthProvider } from "../../src/auth/mcpOAuthProvider.js";
+
+beforeEach(() => {
+  setConfig(loadConfig({
+    DATABASE_URL: "postgresql://x", GITLAB_CLIENT_ID: "id", GITLAB_CLIENT_SECRET: "s",
+    GITLAB_REDIRECT_URI: "http://localhost:3000/auth/callback", ENCRYPTION_KEY: "a".repeat(64),
+    PUBLIC_BASE_URL: "http://localhost:3000",
+  } as NodeJS.ProcessEnv));
+});
+
+const client = { client_id: "c1", redirect_uris: ["http://localhost:7777/cb"] } as any;
+const s256 = (v: string) => createHash("sha256").update(v).digest("base64url");
+
+function deps(over: any = {}) {
+  return {
+    clients: { getClient: vi.fn(), registerClient: vi.fn() },
+    pendingStore: { save: vi.fn(), take: vi.fn() },
+    codeStore: {
+      issue: vi.fn(),
+      peekChallenge: vi.fn(),
+      consume: vi.fn(),
+    },
+    sessions: { validate: vi.fn(), revoke: vi.fn() },
+    refresh: { issue: vi.fn(async () => ({ token: "rt", expiresAt: new Date(Date.now() + 1e6) })), validate: vi.fn(), rotate: vi.fn(), revoke: vi.fn() },
+    users: { findById: vi.fn(async () => ({ id: "u1" })) },
+    stateStore: {},
+    startLogin: vi.fn(async () => "https://gitlab.example/oauth/authorize?x=1"),
+    ...over,
+  };
+}
+
+describe("mcpOAuthProvider", () => {
+  it("authorize parks the request and redirects to GitLab", async () => {
+    const d = deps();
+    const p = mcpOAuthProvider(d as any);
+    const res = { redirect: vi.fn() } as any;
+    await p.authorize(client, { redirectUri: "http://localhost:7777/cb", codeChallenge: "chal", state: "cs" }, res);
+    expect(d.startLogin).toHaveBeenCalledWith(
+      expect.anything(),
+      { pending: { clientId: "c1", redirectUri: "http://localhost:7777/cb", clientState: "cs", codeChallenge: "chal" } },
+    );
+    expect(res.redirect).toHaveBeenCalledWith("https://gitlab.example/oauth/authorize?x=1");
+  });
+
+  it("exchangeAuthorizationCode verifies PKCE and returns the session token as access_token", async () => {
+    const verifier = "verifier-123";
+    const d = deps({
+      codeStore: {
+        consume: vi.fn(async () => ({
+          clientId: "c1", redirectUri: "http://localhost:7777/cb",
+          codeChallenge: s256(verifier), sessionId: "s1", userId: "u1", sessionToken: "the-session",
+        })),
+        peekChallenge: vi.fn(), issue: vi.fn(),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    const tokens = await p.exchangeAuthorizationCode(client, "code", verifier, "http://localhost:7777/cb");
+    expect(tokens.access_token).toBe("the-session");
+    expect(tokens.refresh_token).toBe("rt");
+    expect(tokens.token_type).toBe("bearer");
+  });
+
+  it("exchangeAuthorizationCode rejects a bad verifier", async () => {
+    const d = deps({
+      codeStore: {
+        consume: vi.fn(async () => ({
+          clientId: "c1", redirectUri: "http://localhost:7777/cb",
+          codeChallenge: s256("right"), sessionId: "s1", userId: "u1", sessionToken: "the-session",
+        })),
+        peekChallenge: vi.fn(), issue: vi.fn(),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await expect(p.exchangeAuthorizationCode(client, "code", "wrong", "http://localhost:7777/cb")).rejects.toThrow();
+  });
+
+  it("exchangeAuthorizationCode rejects a redirect_uri mismatch", async () => {
+    const verifier = "v";
+    const d = deps({
+      codeStore: {
+        consume: vi.fn(async () => ({
+          clientId: "c1", redirectUri: "http://localhost:7777/cb",
+          codeChallenge: s256(verifier), sessionId: "s1", userId: "u1", sessionToken: "the-session",
+        })),
+        peekChallenge: vi.fn(), issue: vi.fn(),
+      },
+    });
+    const p = mcpOAuthProvider(d as any);
+    await expect(p.exchangeAuthorizationCode(client, "code", verifier, "http://evil/cb")).rejects.toThrow();
+  });
+
+  it("exchangeRefreshToken rotates and returns a new session", async () => {
+    const d = deps({
+      refresh: {
+        validate: vi.fn(async () => ({ userId: "u1", clientId: "c1" })),
+        rotate: vi.fn(async () => ({ token: "rt2", expiresAt: new Date(Date.now() + 1e6) })),
+        issue: vi.fn(), revoke: vi.fn(),
+      },
+      sessions: { issue: vi.fn(async () => ({ token: "sess2", expiresAt: new Date(Date.now() + 1e6) })), validate: vi.fn(), revoke: vi.fn() },
+    });
+    const p = mcpOAuthProvider(d as any);
+    const tokens = await p.exchangeRefreshToken(client, "old-rt");
+    expect(tokens.access_token).toBe("sess2");
+    expect(tokens.refresh_token).toBe("rt2");
+  });
+
+  it("verifyAccessToken returns AuthInfo for a valid session", async () => {
+    const d = deps({ sessions: { validate: vi.fn(async () => ({ sessionId: "s1", userId: "u1" })), revoke: vi.fn() } });
+    const p = mcpOAuthProvider(d as any);
+    const info = await p.verifyAccessToken("tok");
+    expect(info.token).toBe("tok");
+    expect(info.extra?.userId).toBe("u1");
+  });
+
+  it("verifyAccessToken throws for an invalid session", async () => {
+    const d = deps({ sessions: { validate: vi.fn(async () => null), revoke: vi.fn() } });
+    const p = mcpOAuthProvider(d as any);
+    await expect(p.verifyAccessToken("bad")).rejects.toThrow();
+  });
+});
