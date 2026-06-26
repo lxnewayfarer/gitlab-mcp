@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { setConfig, loadConfig } from "../../src/config/index.js";
 import { authCodeStore } from "../../src/auth/authCodeStore.js";
+import { sha256 } from "../../src/auth/crypto.js";
 
 beforeEach(() => {
   setConfig(loadConfig({
@@ -11,11 +12,13 @@ beforeEach(() => {
 
 function fakeRedis() {
   const m = new Map<string, string>();
-  return {
+  const redis = {
     async set(k: string, v: string) { m.set(k, v); },
     async get(k: string) { return m.get(k) ?? null; },
     async del(k: string) { m.delete(k); },
   } as any;
+  redis._testMap = m;
+  return redis;
 }
 
 const data = {
@@ -25,8 +28,15 @@ const data = {
 
 describe("authCodeStore", () => {
   it("issues a code, peeks challenge, consumes once returning data", async () => {
-    const store = authCodeStore(fakeRedis());
+    const redis = fakeRedis();
+    const store = authCodeStore(redis);
     const code = await store.issue(data);
+
+    // Assert that sessionToken is encrypted at rest (not plaintext)
+    const storedJson = redis._testMap.get("oauth:code:" + sha256(code));
+    const storedParsed = JSON.parse(storedJson!);
+    expect(storedParsed.sessionToken).not.toBe("raw-session-token");
+
     expect(await store.peekChallenge(code)).toBe("chal");
     const got = await store.consume(code);
     expect(got).toEqual(data);
