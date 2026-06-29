@@ -18,7 +18,7 @@ export const approveMergeRequest = defineTool({
     );
     return {
       approved: true,
-      approved_by: approval.approved_by.map((a) => a.user.username),
+      approved_by: (approval.approved_by ?? []).map((a) => a.user.username),
     };
   },
 });

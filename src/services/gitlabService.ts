@@ -344,8 +344,10 @@ export class GitLabService {
       );
       out.push(...data);
       const next = headers.get("x-next-page");
-      if (!next) break;
-      page = Number(next);
+      const nextPage = Number(next);
+      // Stop on empty/absent header, or any non-numeric value (guards NaN).
+      if (!next || !Number.isInteger(nextPage) || nextPage <= page) break;
+      page = nextPage;
     }
     return out;
   }
