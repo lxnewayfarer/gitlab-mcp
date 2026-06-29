@@ -34,6 +34,13 @@ export interface Note {
   created_at: string;
 }
 
+export interface User {
+  id: number;
+  username: string;
+  name: string;
+  state?: string;
+}
+
 export interface Pipeline {
   id: number;
   iid?: number;
@@ -285,6 +292,22 @@ export class GitLabService {
       { body: { body } },
     );
     return data;
+  }
+
+  // --- users ---------------------------------------------------------------
+
+  async getCurrentUser(): Promise<User> {
+    const { data } = await this.requestData<User>("GET", "/user");
+    return data;
+  }
+
+  async findUserByUsername(username: string): Promise<User | null> {
+    // GitLab returns an array; an empty array means "no such user" — a normal
+    // result, not an error, so use request() (not requestData()).
+    const { data } = await this.request<User[]>("GET", "/users", {
+      query: { username },
+    });
+    return data[0] ?? null;
   }
 
   // --- pipelines ----------------------------------------------------------

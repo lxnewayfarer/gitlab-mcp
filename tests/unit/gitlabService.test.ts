@@ -138,4 +138,30 @@ describe("GitLabService", () => {
     expect(url).toContain("ref=main");
     expect(url).toContain("status=success");
   });
+
+  it("getCurrentUser GETs /user", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ id: 7, username: "alice", name: "Alice" }),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const u = await svc.getCurrentUser();
+    expect(String(fetchImpl.mock.calls[0][0])).toBe("https://gitlab.example.com/api/v4/user");
+    expect(u).toEqual({ id: 7, username: "alice", name: "Alice" });
+  });
+
+  it("findUserByUsername returns the first match", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse([{ id: 3, username: "bob", name: "Bob" }]),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const u = await svc.findUserByUsername("bob");
+    expect(String(fetchImpl.mock.calls[0][0])).toContain("/users?username=bob");
+    expect(u).toEqual({ id: 3, username: "bob", name: "Bob" });
+  });
+
+  it("findUserByUsername returns null when no user matches", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse([]));
+    const svc = new GitLabService("tok", fetchImpl as any);
+    expect(await svc.findUserByUsername("ghost")).toBeNull();
+  });
 });
