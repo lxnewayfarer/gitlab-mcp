@@ -9,6 +9,7 @@ import {
 import { addComment } from "../../src/mcp/tools/comments.js";
 import { getPipelineStatus, listPipelines } from "../../src/mcp/tools/pipelines.js";
 import { assignReviewer, setLabels } from "../../src/mcp/tools/reviewersLabels.js";
+import { getCurrentUser as getCurrentUserTool, findUser } from "../../src/mcp/tools/users.js";
 import { buildMcpServer } from "../../src/mcp/server.js";
 import type { AuthContext, ToolContext } from "../../src/mcp/types.js";
 
@@ -83,6 +84,14 @@ function makeStub() {
     listPipelines: vi.fn(async () => {
       calls.push("listPipelines");
       return { items: [PIPELINE], pagination: { page: 1, perPage: 20, total: 1, totalPages: 1, nextPage: null } };
+    }),
+    getCurrentUser: vi.fn(async () => {
+      calls.push("getCurrentUser");
+      return { id: 99, username: "alice", name: "Alice" };
+    }),
+    findUserByUsername: vi.fn(async (username: string) => {
+      calls.push("findUserByUsername");
+      return username === "ghost" ? null : { id: 3, username, name: "Bob" };
     }),
   };
   return { stub, calls };
@@ -223,6 +232,26 @@ describe("MCP tool handlers", () => {
       ctxWith(stub),
     );
     expect(stub.updateMergeRequest).toHaveBeenCalledWith(7, 5, { labels: ["a", "b"] });
+  });
+
+  it("get_current_user: returns {id,username,name}, no access check", async () => {
+    const { stub, calls } = makeStub();
+    const out = await getCurrentUserTool.handler({}, ctxWith(stub));
+    expect(calls).toEqual(["getCurrentUser"]);
+    expect(out).toEqual({ id: 99, username: "alice", name: "Alice" });
+  });
+
+  it("find_user: returns the matched user, no access check", async () => {
+    const { stub, calls } = makeStub();
+    const out = await findUser.handler({ username: "bob" }, ctxWith(stub));
+    expect(calls).toEqual(["findUserByUsername"]);
+    expect(out).toEqual({ id: 3, username: "bob", name: "Bob" });
+  });
+
+  it("find_user: returns null when no user matches", async () => {
+    const { stub } = makeStub();
+    const out = await findUser.handler({ username: "ghost" }, ctxWith(stub));
+    expect(out).toBeNull();
   });
 });
 
