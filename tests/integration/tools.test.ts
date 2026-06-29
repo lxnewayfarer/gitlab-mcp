@@ -11,6 +11,7 @@ import { getPipelineStatus, listPipelines } from "../../src/mcp/tools/pipelines.
 import { assignReviewer, setLabels } from "../../src/mcp/tools/reviewersLabels.js";
 import { getCurrentUser as getCurrentUserTool, findUser } from "../../src/mcp/tools/users.js";
 import { getMergeRequestDiff, getMergeRequestVersions as getMrVersionsTool } from "../../src/mcp/tools/diffs.js";
+import { listMergeRequestDiscussions, replyToDiscussion } from "../../src/mcp/tools/discussions.js";
 import { buildMcpServer } from "../../src/mcp/server.js";
 import type { AuthContext, ToolContext } from "../../src/mcp/types.js";
 
@@ -103,6 +104,24 @@ function makeStub() {
     getMergeRequestVersions: vi.fn(async () => {
       calls.push("getMergeRequestVersions");
       return [{ base_commit_sha: "base", head_commit_sha: "head", start_commit_sha: "start" }];
+    }),
+    listDiscussions: vi.fn(async () => {
+      calls.push("listDiscussions");
+      return {
+        items: [
+          {
+            id: "disc-1",
+            notes: [
+              { id: 11, body: "hi", author: { id: 2, username: "bob" }, created_at: "c", position: { new_line: 4 } },
+            ],
+          },
+        ],
+        pagination: { page: 1, perPage: 20, total: 1, totalPages: 1, nextPage: null },
+      };
+    }),
+    replyToDiscussion: vi.fn(async () => {
+      calls.push("replyToDiscussion");
+      return { id: 77, body: "reply", author: { id: 2, username: "bob" }, created_at: "c" };
     }),
   };
   return { stub, calls };
@@ -292,6 +311,31 @@ describe("MCP tool handlers", () => {
     await expect(
       getMrVersionsTool.handler({ project_id: 7, merge_request_iid: 5 }, ctxWith(stub)),
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("list_merge_request_discussions: flattens author, passes position through", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await listMergeRequestDiscussions.handler(
+      { project_id: 7, merge_request_iid: 5, page: 1, per_page: 20 },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "listDiscussions"]);
+    expect(stub.listDiscussions).toHaveBeenCalledWith(7, 5, { page: 1, perPage: 20 });
+    expect(out.items[0].id).toBe("disc-1");
+    expect(out.items[0].notes[0].author).toBe("bob");
+    expect(out.items[0].notes[0].position).toEqual({ new_line: 4 });
+    expect(out.pagination.page).toBe(1);
+  });
+
+  it("reply_to_discussion: returns {note_id}", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await replyToDiscussion.handler(
+      { project_id: 7, merge_request_iid: 5, discussion_id: "disc-1", body: "reply" },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "replyToDiscussion"]);
+    expect(stub.replyToDiscussion).toHaveBeenCalledWith(7, 5, "disc-1", "reply");
+    expect(out).toEqual({ note_id: 77 });
   });
 });
 

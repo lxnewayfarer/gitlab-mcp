@@ -11,6 +11,25 @@ export const mergeRequestIid = z
   .positive()
   .describe("The project-scoped merge request IID (not the global id)");
 
+/**
+ * A single GitLab label. Labels are sent to GitLab as a comma-joined string, so
+ * a value containing a comma would be silently split into multiple labels.
+ * Reject commas (and blank values) at the input boundary.
+ */
+export const label = z
+  .string()
+  .trim()
+  .min(1, "label must not be empty")
+  .refine((s) => !s.includes(","), "label must not contain a comma");
+
+export const labels = z.array(label);
+
+/** A GitLab discussion id (opaque string, e.g. a 40-char hash). */
+export const discussionId = z
+  .string()
+  .min(1)
+  .describe("The discussion id returned by list_merge_request_discussions");
+
 /** Compact MR shape returned to the agent. */
 export function presentMergeRequest(mr: {
   id: number;
