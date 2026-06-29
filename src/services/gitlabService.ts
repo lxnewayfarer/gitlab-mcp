@@ -119,10 +119,13 @@ export class GitLabService {
       let message = res.statusText;
       try {
         const errJson = (await res.json()) as { message?: unknown; error?: unknown };
+        // Use GitLab's structured message/error string if present; otherwise
+        // keep the status text. Never dump the whole body (JSON.stringify),
+        // which can echo arbitrary server-provided content downstream.
         message =
           (typeof errJson.message === "string" && errJson.message) ||
           (typeof errJson.error === "string" && errJson.error) ||
-          JSON.stringify(errJson);
+          res.statusText;
       } catch {
         /* keep statusText */
       }
@@ -131,6 +134,24 @@ export class GitLabService {
 
     const data = (res.status === 204 ? null : await res.json()) as T;
     return { data, headers: res.headers };
+  }
+
+  /**
+   * Like request() but asserts a non-empty body. Methods that promise a concrete
+   * object use this so a stray 204/empty response surfaces as a clear error
+   * instead of a null masquerading as the typed value (which would later throw a
+   * confusing TypeError on property access).
+   */
+  private async requestData<T>(
+    method: string,
+    path: string,
+    opts: { query?: Query; body?: unknown } = {},
+  ): Promise<{ data: T; headers: Headers }> {
+    const res = await this.request<T>(method, path, opts);
+    if (res.data === null || res.data === undefined) {
+      throw new GitLabApiError(502, "GitLab returned an empty response where data was expected.");
+    }
+    return res as { data: T; headers: Headers };
   }
 
   private encodeProjectId(projectId: string | number): string {
@@ -176,7 +197,7 @@ export class GitLabService {
       assignee_id?: number;
     },
   ): Promise<MergeRequest> {
-    const { data } = await this.request<MergeRequest>(
+    const { data } = await this.requestData<MergeRequest>(
       "POST",
       `/projects/${this.encodeProjectId(projectId)}/merge_requests`,
       {
@@ -212,7 +233,7 @@ export class GitLabService {
       reviewer_ids: input.reviewer_ids,
     };
     if (input.labels !== undefined) body.labels = input.labels.join(",");
-    const { data } = await this.request<MergeRequest>(
+    const { data } = await this.requestData<MergeRequest>(
       "PUT",
       `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}`,
       { body },
@@ -224,7 +245,7 @@ export class GitLabService {
     projectId: string | number,
     iid: number,
   ): Promise<MergeRequest> {
-    const { data } = await this.request<MergeRequest>(
+    const { data } = await this.requestData<MergeRequest>(
       "GET",
       `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}`,
     );
@@ -258,7 +279,7 @@ export class GitLabService {
     iid: number,
     body: string,
   ): Promise<Note> {
-    const { data } = await this.request<Note>(
+    const { data } = await this.requestData<Note>(
       "POST",
       `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}/notes`,
       { body: { body } },
@@ -272,7 +293,7 @@ export class GitLabService {
     projectId: string | number,
     pipelineId: number,
   ): Promise<Pipeline> {
-    const { data } = await this.request<Pipeline>(
+    const { data } = await this.requestData<Pipeline>(
       "GET",
       `/projects/${this.encodeProjectId(projectId)}/pipelines/${pipelineId}`,
     );
