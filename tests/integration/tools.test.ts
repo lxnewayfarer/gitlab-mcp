@@ -455,3 +455,25 @@ describe("buildMcpServer audit wrapper", () => {
     spy.mockRestore();
   });
 });
+
+import { TOOLS } from "../../src/mcp/registry.js";
+
+describe("tool registry", () => {
+  it("registers all 17 tools with unique names", () => {
+    expect(TOOLS).toHaveLength(17);
+    const names = TOOLS.map((t) => t.name);
+    expect(new Set(names).size).toBe(17);
+    for (const expected of [
+      "get_current_user",
+      "find_user",
+      "get_merge_request_diff",
+      "get_merge_request_versions",
+      "list_merge_request_discussions",
+      "reply_to_discussion",
+      "approve_merge_request",
+      "unapprove_merge_request",
+    ]) {
+      expect(names).toContain(expected);
+    }
+  });
+});
