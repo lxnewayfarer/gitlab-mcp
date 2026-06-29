@@ -38,11 +38,12 @@ describe("mapError", () => {
     expect(mapError(new GitLabApiError(503, "boom")).kind).toBe("upstream_unavailable");
   });
 
-  it("maps other 4xx -> bad_request and includes message", () => {
-    const m = mapError(new GitLabApiError(422, "validation failed"));
+  it("maps other 4xx -> bad_request with the status but WITHOUT echoing the raw body", () => {
+    const m = mapError(new GitLabApiError(422, "secret-ish internal detail"));
     expect(m.kind).toBe("bad_request");
     expect(m.message).toMatch(/422/);
-    expect(m.message).toMatch(/validation failed/);
+    // The raw GitLab body must NOT be reflected back to the caller.
+    expect(m.message).not.toMatch(/secret-ish internal detail/);
   });
 
   it("maps network 'fetch failed' Error -> upstream_unavailable", () => {
@@ -50,10 +51,11 @@ describe("mapError", () => {
     expect(mapError(new Error("connect ECONNREFUSED")).kind).toBe("upstream_unavailable");
   });
 
-  it("maps unknown Error -> internal with its message", () => {
-    const m = mapError(new Error("weird"));
+  it("maps unknown Error -> internal with a GENERIC message (no internal detail leaked)", () => {
+    const m = mapError(new Error("Prisma query failed: column users.secret at db.internal"));
     expect(m.kind).toBe("internal");
-    expect(m.message).toBe("weird");
+    expect(m.message).toMatch(/unexpected/i);
+    expect(m.message).not.toMatch(/Prisma|db\.internal/);
   });
 
   it("maps non-Error throw -> internal generic", () => {

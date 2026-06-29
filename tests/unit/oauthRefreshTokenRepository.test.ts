@@ -18,9 +18,9 @@ describe("oauthRefreshTokenRepository", () => {
     const db = fakeDb();
     const repo = oauthRefreshTokenRepository(db);
     const expiresAt = new Date();
-    await repo.create({ userId: "u1", clientId: "c1", tokenHash: "h", expiresAt });
+    await repo.create({ userId: "u1", clientId: "c1", familyId: "f1", tokenHash: "h", expiresAt });
     expect(db.oAuthRefreshToken.create).toHaveBeenCalledOnce();
-    expect(db.oAuthRefreshToken.create).toHaveBeenCalledWith({ data: { userId: "u1", clientId: "c1", tokenHash: "h", expiresAt } });
+    expect(db.oAuthRefreshToken.create).toHaveBeenCalledWith({ data: { userId: "u1", clientId: "c1", familyId: "f1", tokenHash: "h", expiresAt } });
     expect(await repo.findByHash("h")).not.toBeNull();
     await repo.revokeByHash("h", new Date());
     expect(db.oAuthRefreshToken.updateMany).toHaveBeenCalled();

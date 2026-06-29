@@ -1,5 +1,6 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { getConfig } from "../config/index.js";
+import { setStateCookie, clearStateCookie, stateCookieMatches } from "./stateCookie.js";
 import { randomToken } from "../auth/crypto.js";
 import {
   buildAuthorizeUrl,
@@ -33,12 +34,14 @@ export interface AuthRoutesDeps {
  */
 export async function startGitLabLogin(
   deps: { stateStore: ReturnType<typeof oauthStateStore>; pendingStore: ReturnType<typeof pendingAuthorizeStore> },
-  opts?: { pending?: PendingAuthorize },
+  opts?: { pending?: PendingAuthorize; res?: Response },
 ): Promise<string> {
   const state = randomToken(16);
   const { verifier, challenge } = generatePkce();
   await deps.stateStore.save(state, { verifier });
   if (opts?.pending) await deps.pendingStore.save(state, opts.pending);
+  // Bind the state to this browser so the callback can reject login-CSRF.
+  if (opts?.res) setStateCookie(opts.res, state);
   return buildAuthorizeUrl(state, challenge);
 }
 
@@ -55,7 +58,7 @@ export function authRoutes(deps?: AuthRoutesDeps): Router {
 
   // Manual login (fallback) — no parked OAuth request.
   router.get("/login", async (_req, res) => {
-    const url = await startGitLabLogin({ stateStore, pendingStore });
+    const url = await startGitLabLogin({ stateStore, pendingStore }, { res });
     res.redirect(url);
   });
 
@@ -67,8 +70,18 @@ export function authRoutes(deps?: AuthRoutesDeps): Router {
       return;
     }
 
+    // Login-CSRF defence: the state must match the signed cookie set when this
+    // browser started the flow. Without this, an attacker could feed a victim a
+    // code+state pair to bind the victim's browser to the attacker's account.
+    if (!stateCookieMatches(req, state)) {
+      clearStateCookie(res);
+      res.status(400).send("OAuth state did not match this browser session. Please retry /auth/login.");
+      return;
+    }
+
     const pendingAuth = await stateStore.take(state);
     if (!pendingAuth) {
+      clearStateCookie(res);
       res.status(400).send("Invalid or expired OAuth state. Please retry /auth/login.");
       return;
     }
@@ -94,6 +107,7 @@ export function authRoutes(deps?: AuthRoutesDeps): Router {
       // OAuth-client branch: a parked authorize request → issue our code & redirect back.
       // If pendingStore is unavailable (e.g. Redis down), treat as "no parked request"
       // and fall through to the HTML page — never a 502.
+      clearStateCookie(res);
       const parked = await pendingStore.take(state).catch(() => null);
       if (parked) {
         const authCode = await codeStore.issue({

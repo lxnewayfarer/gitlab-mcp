@@ -22,3 +22,48 @@ describe("config OAuth TTLs", () => {
     expect(cfg.OAUTH_REFRESH_TTL_HOURS).toBe(168);
   });
 });
+
+describe("ENCRYPTION_KEY validation", () => {
+  it("accepts 64 hex chars", () => {
+    expect(() => loadConfig({ ...base, ENCRYPTION_KEY: "a".repeat(64) } as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
+  it("accepts valid base64 of exactly 32 bytes", () => {
+    const b64 = Buffer.alloc(32, 7).toString("base64");
+    expect(() => loadConfig({ ...base, ENCRYPTION_KEY: b64 } as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
+  it("rejects a short ASCII passphrase that lenient base64 would silently accept", () => {
+    // 32 ASCII chars: NOT 64-hex, decodes via base64 to ~24 bytes — must be rejected, not coerced.
+    expect(() => loadConfig({ ...base, ENCRYPTION_KEY: "this-is-a-weak-passphrase-123456" } as NodeJS.ProcessEnv)).toThrow();
+  });
+
+  it("rejects base64 that does not decode to 32 bytes", () => {
+    const b64 = Buffer.alloc(16, 1).toString("base64");
+    expect(() => loadConfig({ ...base, ENCRYPTION_KEY: b64 } as NodeJS.ProcessEnv)).toThrow();
+  });
+});
+
+describe("production hardening gate", () => {
+  const prodBase = { ...base, NODE_ENV: "production", PUBLIC_BASE_URL: "https://mcp.example.com", GITLAB_REDIRECT_URI: "https://mcp.example.com/auth/callback", DATABASE_URL: "postgresql://u:strongpw@db.internal:5432/app", REDIS_URL: "redis://cache.internal:6379" };
+
+  it("accepts a hardened production config", () => {
+    expect(() => loadConfig(prodBase as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
+  it("rejects http PUBLIC_BASE_URL in production", () => {
+    expect(() => loadConfig({ ...prodBase, PUBLIC_BASE_URL: "http://mcp.example.com" } as NodeJS.ProcessEnv)).toThrow();
+  });
+
+  it("rejects localhost datastores in production", () => {
+    expect(() => loadConfig({ ...prodBase, DATABASE_URL: "postgresql://gitlab_mcp:gitlab_mcp@localhost:5432/db" } as NodeJS.ProcessEnv)).toThrow();
+  });
+
+  it("rejects the default weak DB password in production", () => {
+    expect(() => loadConfig({ ...prodBase, DATABASE_URL: "postgresql://gitlab_mcp:gitlab_mcp@db.internal:5432/db" } as NodeJS.ProcessEnv)).toThrow();
+  });
+
+  it("does not apply the gate in development", () => {
+    expect(() => loadConfig({ ...base, PUBLIC_BASE_URL: "http://localhost:3000" } as NodeJS.ProcessEnv)).not.toThrow();
+  });
+});

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../types.js";
-import { projectId, mergeRequestIid, presentMergeRequest } from "./common.js";
+import { projectId, mergeRequestIid, presentMergeRequest, labels as labelsSchema } from "./common.js";
 
 export const createMergeRequest = defineTool({
   name: "create_merge_request",
@@ -12,7 +12,7 @@ export const createMergeRequest = defineTool({
     target_branch: z.string().min(1),
     title: z.string().min(1),
     description: z.string().optional(),
-    labels: z.array(z.string()).optional(),
+    labels: labelsSchema.optional(),
     reviewers: z
       .array(z.number().int().positive())
       .optional()
@@ -42,7 +42,7 @@ export const updateMergeRequest = defineTool({
     merge_request_iid: mergeRequestIid,
     title: z.string().min(1).optional(),
     description: z.string().optional(),
-    labels: z.array(z.string()).optional(),
+    labels: labelsSchema.optional(),
     assignee_id: z.number().int().positive().optional(),
   }),
   async handler(input, ctx) {

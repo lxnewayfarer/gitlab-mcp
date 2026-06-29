@@ -22,6 +22,11 @@ function fakeRepo(expiresAt: Date = new Date(Date.now() + 3600 * 1000)) {
     },
     async findActiveByHash(h: string) { return rows.get(h) ?? null; },
     async revokeByHash(h: string, when: Date) { const r = rows.get(h); if (r) r.revokedAt = when; },
+    async revokeAllForUser(userId: string, when: Date) {
+      const hashes: string[] = [];
+      for (const r of rows.values()) if (r.userId === userId && r.revokedAt === null) { r.revokedAt = when; hashes.push(r.tokenHash); }
+      return hashes;
+    },
   };
 }
 
@@ -89,6 +94,24 @@ describe("sessionService", () => {
     const { token } = await svc.issue({ id: "u1" } as any);
     // Simulate revocation by marking revokedAt in the fake repo
     repo.rows.get(sha256(token))!.revokedAt = new Date();
+    expect(await svc.validate(token)).toBeNull();
+  });
+
+  it("revokeAllForUser revokes sessions and purges them from the cache", async () => {
+    const repo = fakeRepo();
+    const redis = fakeRedis();
+    const svc = sessionService({ repo: repo as any, redis: redis as any });
+
+    const { token } = await svc.issue({ id: "u1" } as any);
+    // Cache is populated by issue(); a fresh validate() would hit it.
+    expect(await svc.validate(token)).not.toBeNull();
+
+    await svc.revokeAllForUser("u1");
+
+    // Cache key must be gone, and the DB row revoked.
+    expect(redis.store.get("session:" + sha256(token))).toBeUndefined();
+    expect(repo.rows.get(sha256(token))!.revokedAt).not.toBeNull();
+    // And validation now fails even though the row still exists.
     expect(await svc.validate(token)).toBeNull();
   });
 });

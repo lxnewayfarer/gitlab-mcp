@@ -25,6 +25,26 @@ logging.
 - **Revocation / logout:** `POST /auth/logout` invalidates the session; the
   bearer token is then rejected.
 
+### MCP-client OAuth (server as its own Authorization Server)
+
+For MCP clients that support OAuth, the server acts as its **own OAuth 2.0
+Authorization Server** layered over GitLab, so clients never paste a token:
+
+- Clients register via **Dynamic Client Registration** (`POST /register`) and
+  obtain tokens through the **authorization-code + PKCE (S256)** grant
+  (`/authorize`, `/token`). GitLab remains the upstream identity provider; the
+  GitLab token never leaves the server.
+- The client receives an **opaque session bearer token** plus a separate
+  **opaque, rotating refresh token**. Each refresh **rotates** the token: the
+  old one is consumed and a new one issued.
+- **Refresh-token reuse detection** (RFC 9700 / OAuth 2.1): if a previously
+  rotated (already-used) refresh token is replayed, the **entire rotation family
+  is revoked**, defeating stolen-token replay.
+- **Revocation cascades:** revoking a token (`POST /revoke`) or a session tears
+  down both the associated session(s) **and** the linked refresh tokens.
+- Refresh-token lifetime is controlled by **`OAUTH_REFRESH_TTL_HOURS`** (default
+  720h / 30 days); short-lived authorization codes by `OAUTH_CODE_TTL_SECONDS`.
+
 ## Token storage
 
 - GitLab access **and** refresh tokens are encrypted at rest with
@@ -76,6 +96,12 @@ The server explicitly does **not** expose:
 
 There is no generic pass-through; the GitLab REST surface is reachable only
 through these specific, validated operations.
+
+> Note on `GITLAB_SCOPES`: the `api` scope grants full read/write GitLab API
+> access **as the user** — broader than the 9-tool surface strictly needs — and
+> is required because the tools perform write operations (creating/updating MRs,
+> comments, labels, reviewers). The server still never exposes that breadth: only
+> the 9 tools above can be invoked.
 
 ## Audit logging
 

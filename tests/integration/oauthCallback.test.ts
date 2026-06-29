@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import express from "express";
 import request from "supertest";
-import { installTestConfig } from "../helpers/config.js";
+import { installTestConfig, stateCookieHeader } from "../helpers/config.js";
 
 // Mock the GitLab OAuth network functions; keep buildAuthorizeUrl/generatePkce real.
 vi.mock("../../src/auth/gitlabOAuth.js", async (importOriginal) => {
@@ -77,7 +77,9 @@ describe("GET /auth/callback", () => {
   it("exchanges the code, stores the user, and returns the bearer token", async () => {
     const { app, users, accounts, sessions } = buildApp({ s1: { verifier: "v1" } });
 
-    const res = await request(app).get("/auth/callback?code=abc&state=s1");
+    const res = await request(app)
+      .get("/auth/callback?code=abc&state=s1")
+      .set("Cookie", stateCookieHeader("s1"));
 
     expect(res.status).toBe(200);
     expect(res.text).toContain("session-token-xyz");
@@ -110,9 +112,27 @@ describe("GET /auth/callback", () => {
 
   it("returns 400 for an unknown/expired state", async () => {
     const { app } = buildApp({}); // no pending entries -> take() returns null
-    const res = await request(app).get("/auth/callback?code=abc&state=ghost");
+    const res = await request(app)
+      .get("/auth/callback?code=abc&state=ghost")
+      .set("Cookie", stateCookieHeader("ghost"));
     expect(res.status).toBe(400);
     expect(res.text).toMatch(/invalid or expired/i);
+  });
+
+  it("returns 400 when the state cookie is missing (login-CSRF defence)", async () => {
+    const { app } = buildApp({ s1: { verifier: "v1" } });
+    const res = await request(app).get("/auth/callback?code=abc&state=s1");
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/did not match this browser/i);
+  });
+
+  it("returns 400 when the state cookie is for a different state", async () => {
+    const { app } = buildApp({ s1: { verifier: "v1" } });
+    const res = await request(app)
+      .get("/auth/callback?code=abc&state=s1")
+      .set("Cookie", stateCookieHeader("other-state"));
+    expect(res.status).toBe(400);
+    expect(res.text).toMatch(/did not match this browser/i);
   });
 });
 

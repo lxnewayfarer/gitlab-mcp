@@ -3,6 +3,9 @@ import request from "supertest";
 import express from "express";
 import { setConfig, loadConfig } from "../../src/config/index.js";
 import { authRoutes } from "../../src/http/authRoutes.js";
+import { stateCookieHeader } from "../helpers/config.js";
+
+const KEY = Buffer.from("a".repeat(64), "hex");
 
 beforeEach(() => {
   setConfig(loadConfig({
@@ -56,7 +59,7 @@ describe("/auth/callback OAuth branch", () => {
       exchangeCode, fetchGitLabUser,
     }));
 
-    const res = await request(app).get("/auth/callback?code=glcode&state=st1");
+    const res = await request(app).get("/auth/callback?code=glcode&state=st1").set("Cookie", stateCookieHeader("st1", KEY));
     expect(res.status).toBe(302);
     const loc = new URL(res.headers.location);
     expect(loc.origin + loc.pathname).toBe("http://localhost:7777/cb");
@@ -77,7 +80,7 @@ describe("/auth/callback OAuth branch", () => {
       exchangeCode, fetchGitLabUser,
     }));
 
-    const res = await request(app).get("/auth/callback?code=glcode&state=st2");
+    const res = await request(app).get("/auth/callback?code=glcode&state=st2").set("Cookie", stateCookieHeader("st2", KEY));
     expect(res.status).toBe(200);
     expect(res.text).toContain("Connected as");
   });
@@ -101,7 +104,7 @@ describe("/auth/callback OAuth branch", () => {
       exchangeCode, fetchGitLabUser,
     }));
 
-    const res = await request(app).get("/auth/callback?code=glcode&state=st3");
+    const res = await request(app).get("/auth/callback?code=glcode&state=st3").set("Cookie", stateCookieHeader("st3", KEY));
     expect(res.status).toBe(200);
     expect(res.text).toContain("Connected as");
   });

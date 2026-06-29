@@ -12,6 +12,11 @@ User → GitLab OAuth Login → MCP Server → GitLab REST API
 ## Features
 
 - **Per-user OAuth 2.0** login (PKCE + `state`), token auto-refresh, logout.
+- **MCP-client OAuth (zero token paste)** — the server is its own OAuth 2.0
+  Authorization Server: Dynamic Client Registration + authorization-code/PKCE,
+  with opaque, rotating refresh tokens (reuse detection revokes the whole
+  rotation family). GitLab is the upstream identity provider. Manual bearer-token
+  paste remains as a fallback.
 - **Server-issued bearer tokens** — the client sends one bearer token; the
   server maps it to that user's GitLab session.
 - **Secure token storage** — GitLab tokens encrypted at rest (AES-256-GCM);

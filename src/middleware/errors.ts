@@ -78,9 +78,13 @@ export function mapError(err: unknown): MappedError {
           message: `GitLab is currently unavailable (${err.status}). Please try again later.`,
         };
       default:
+        // Do NOT echo the raw GitLab response body back to the caller — it can
+        // contain internal API shape or server-provided content. Log the detail
+        // server-side and return only the status.
+        console.error(`[gitlab] request failed (${err.status}): ${err.message}`);
         return {
           kind: "bad_request",
-          message: `GitLab request failed (${err.status}): ${err.message}`,
+          message: `GitLab rejected the request (${err.status}). Check the parameters and try again.`,
         };
     }
   }
@@ -96,9 +100,11 @@ export function mapError(err: unknown): MappedError {
     };
   }
 
+  // Unexpected error: never surface err.message (may contain Prisma/DB/internal
+  // detail). Log the real error server-side; return a generic message.
+  console.error("[internal error]", err instanceof Error ? err.stack ?? err.message : err);
   return {
     kind: "internal",
-    message:
-      err instanceof Error ? err.message : "An unexpected error occurred.",
+    message: "An unexpected error occurred.",
   };
 }

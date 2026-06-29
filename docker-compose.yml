@@ -4,7 +4,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-gitlab_mcp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gitlab_mcp}
+      # No default — must be supplied (e.g. in .env). Avoids shipping a stack
+      # with a well-known password that the app's production gate also rejects.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env}
       POSTGRES_DB: ${POSTGRES_DB:-gitlab_mcp}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -35,19 +37,24 @@ services:
       redis:
         condition: service_healthy
     environment:
-      NODE_ENV: production
+      # Defaults to development so a local `docker compose up` works. For a real
+      # deployment set NODE_ENV=production (the app then enforces https
+      # PUBLIC_BASE_URL, non-localhost datastores, and a strong DB password).
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-gitlab_mcp}:${POSTGRES_PASSWORD:-gitlab_mcp}@postgres:5432/${POSTGRES_DB:-gitlab_mcp}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gitlab_mcp}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env}@postgres:5432/${POSTGRES_DB:-gitlab_mcp}?schema=public
       REDIS_URL: redis://redis:6379
       GITLAB_BASE_URL: ${GITLAB_BASE_URL:-https://gitlab.com}
-      GITLAB_CLIENT_ID: ${GITLAB_CLIENT_ID}
-      GITLAB_CLIENT_SECRET: ${GITLAB_CLIENT_SECRET}
+      GITLAB_CLIENT_ID: ${GITLAB_CLIENT_ID:?set GITLAB_CLIENT_ID in your .env}
+      GITLAB_CLIENT_SECRET: ${GITLAB_CLIENT_SECRET:?set GITLAB_CLIENT_SECRET in your .env}
       GITLAB_REDIRECT_URI: ${GITLAB_REDIRECT_URI:-http://localhost:3000/auth/callback}
       GITLAB_SCOPES: ${GITLAB_SCOPES:-read_user api}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in your .env (openssl rand -hex 32)}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
       TOKEN_REFRESH_SKEW_SECONDS: ${TOKEN_REFRESH_SKEW_SECONDS:-60}
+      OAUTH_CODE_TTL_SECONDS: ${OAUTH_CODE_TTL_SECONDS:-60}
+      OAUTH_REFRESH_TTL_HOURS: ${OAUTH_REFRESH_TTL_HOURS:-720}
     ports:
       - "${PORT:-3000}:3000"
 

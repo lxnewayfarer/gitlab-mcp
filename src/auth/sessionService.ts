@@ -66,8 +66,23 @@ export function sessionService(deps?: {
     /** Revoke a session by its raw token. */
     async revoke(token: string): Promise<void> {
       const tokenHash = sha256(token);
-      await repo.revokeByHash(tokenHash, new Date());
+      // Purge the cache first so a concurrent validate() cannot re-populate a
+      // stale entry between the DB write and the cache delete.
       await redis.del(CACHE_PREFIX + tokenHash).catch(() => undefined);
+      await repo.revokeByHash(tokenHash, new Date());
+    },
+
+    /**
+     * Revoke every active session for a user (e.g. on refresh-token reuse or a
+     * cascading token revocation) and purge each from the cache. Without the
+     * cache purge a revoked session would keep authenticating until its cache
+     * TTL (up to SESSION_TTL_HOURS) elapsed.
+     */
+    async revokeAllForUser(userId: string): Promise<void> {
+      const hashes = await repo.revokeAllForUser(userId, new Date());
+      await Promise.all(
+        hashes.map((h) => redis.del(CACHE_PREFIX + h).catch(() => undefined)),
+      );
     },
   };
 }

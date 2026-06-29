@@ -3,7 +3,13 @@
 This server authenticates every user with **their own GitLab account** via
 OAuth 2.0. There are **no Personal Access Tokens** — users never paste GitLab
 tokens. Instead they log in through GitLab, and the server issues its own
-short-lived bearer token for use with the MCP endpoint.
+**session-scoped opaque bearer token** (default 7-day TTL, configurable via
+`SESSION_TTL_HOURS`) for use with the MCP endpoint.
+
+The **primary** way to connect an MCP client is the server's built-in OAuth flow
+(no token to copy by hand) — see [§8](#8-connecting-an-mcp-client-eg-claude-code-via-oauth).
+The browser login that displays a bearer token to paste manually is the
+**fallback** for clients that cannot do OAuth.
 
 ## 1. Register an OAuth application
 
@@ -61,7 +67,11 @@ version control.
 The redirect URI **must match exactly** — same scheme, host, port, and path —
 between the GitLab app registration and `GITLAB_REDIRECT_URI`.
 
-## 5. The login flow
+## 5. The login flow (manual-token fallback)
+
+This is the browser flow used when an MCP client cannot perform OAuth itself. The
+preferred, zero-token-paste path is the client OAuth flow in
+[§8](#8-connecting-an-mcp-client-eg-claude-code-via-oauth).
 
 ```
 1. User opens   GET /auth/login

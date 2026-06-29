@@ -287,6 +287,7 @@ function buildTestApp(stores: ReturnType<typeof makeInMemoryStores>) {
       const url = await startGitLabLogin(
         { stateStore: stateStore as any, pendingStore: pendingStore as any },
         {
+          res,
           pending: {
             clientId: client.client_id,
             redirectUri: params.redirectUri,
@@ -424,9 +425,10 @@ describe("MCP OAuth end-to-end", () => {
   it("DCR → authorize → callback → token yields a working access token", async () => {
     const stores = makeInMemoryStores();
     const app = buildTestApp(stores);
+    const agent = request.agent(app); // carry the state cookie across authorize→callback
 
     // ── Step 1: Dynamic Client Registration ──────────────────────────────────
-    const regRes = await request(app)
+    const regRes = await agent
       .post("/register")
       .set("Content-Type", "application/json")
       .send({
@@ -442,7 +444,7 @@ describe("MCP OAuth end-to-end", () => {
     expect(clientId).toBeTruthy();
 
     // ── Step 2: /authorize → redirect to GitLab ───────────────────────────────
-    const authorizeRes = await request(app)
+    const authorizeRes = await agent
       .get(
         `/authorize?response_type=code` +
           `&client_id=${encodeURIComponent(clientId)}` +
@@ -464,7 +466,7 @@ describe("MCP OAuth end-to-end", () => {
     expect(internalState).toBeTruthy();
 
     // ── Step 3: GitLab callback → redirect to client with our code ────────────
-    const callbackRes = await request(app)
+    const callbackRes = await agent
       .get(`/auth/callback?code=gl-code&state=${encodeURIComponent(internalState!)}`)
       .redirects(0);
 
@@ -478,7 +480,7 @@ describe("MCP OAuth end-to-end", () => {
     expect(clientUrl.searchParams.get("state")).toBe(CLIENT_STATE);
 
     // ── Step 4: Exchange code for tokens ──────────────────────────────────────
-    const tokenRes = await request(app)
+    const tokenRes = await agent
       .post("/token")
       .type("form")
       .send({
@@ -498,7 +500,7 @@ describe("MCP OAuth end-to-end", () => {
     expect(access_token).not.toBe("gl-access");
 
     // ── Step 5a: Access token works at /mcp (not 401) ─────────────────────────
-    const mcpRes = await request(app)
+    const mcpRes = await agent
       .post("/mcp")
       .set("Authorization", `Bearer ${access_token}`)
       .set("Content-Type", "application/json")
@@ -507,14 +509,14 @@ describe("MCP OAuth end-to-end", () => {
     expect(mcpRes.status).not.toBe(401);
 
     // ── Step 5b: Missing / garbage bearer IS rejected with 401 ───────────────
-    const noAuthRes = await request(app)
+    const noAuthRes = await agent
       .post("/mcp")
       .set("Content-Type", "application/json")
       .send({ jsonrpc: "2.0", method: "ping", id: 2 });
     expect(noAuthRes.status).toBe(401);
     expect(noAuthRes.headers["www-authenticate"]).toBeTruthy();
 
-    const badAuthRes = await request(app)
+    const badAuthRes = await agent
       .post("/mcp")
       .set("Authorization", "Bearer garbage-token-that-was-never-issued")
       .set("Content-Type", "application/json")
@@ -526,9 +528,10 @@ describe("MCP OAuth end-to-end", () => {
   it("refresh_token grant returns a fresh access_token", async () => {
     const stores = makeInMemoryStores();
     const app = buildTestApp(stores);
+    const agent = request.agent(app);
 
     // Register + full DCR→token flow (abbreviated, no assertions — covered above)
-    const regRes = await request(app)
+    const regRes = await agent
       .post("/register")
       .set("Content-Type", "application/json")
       .send({
@@ -538,7 +541,7 @@ describe("MCP OAuth end-to-end", () => {
       });
     const clientId = regRes.body.client_id;
 
-    const authRes = await request(app)
+    const authRes = await agent
       .get(
         `/authorize?response_type=code` +
           `&client_id=${encodeURIComponent(clientId)}` +
@@ -551,12 +554,12 @@ describe("MCP OAuth end-to-end", () => {
       .redirects(0);
     const internalState = new URL(authRes.headers.location).searchParams.get("state")!;
 
-    const cbRes = await request(app)
+    const cbRes = await agent
       .get(`/auth/callback?code=gl-code&state=${encodeURIComponent(internalState)}`)
       .redirects(0);
     const ourCode = new URL(cbRes.headers.location).searchParams.get("code")!;
 
-    const tokenRes = await request(app).post("/token").type("form").send({
+    const tokenRes = await agent.post("/token").type("form").send({
       grant_type: "authorization_code",
       code: ourCode,
       code_verifier: verifier,
@@ -566,7 +569,7 @@ describe("MCP OAuth end-to-end", () => {
     const { access_token: firstAccess, refresh_token } = tokenRes.body;
 
     // Now use the refresh token
-    const refreshRes = await request(app).post("/token").type("form").send({
+    const refreshRes = await agent.post("/token").type("form").send({
       grant_type: "refresh_token",
       refresh_token,
       client_id: clientId,
@@ -581,7 +584,7 @@ describe("MCP OAuth end-to-end", () => {
     expect(newRefresh).not.toBe(refresh_token);
 
     // The new access token must work on /mcp
-    const mcpRes = await request(app)
+    const mcpRes = await agent
       .post("/mcp")
       .set("Authorization", `Bearer ${newAccess}`)
       .set("Content-Type", "application/json")
@@ -590,7 +593,7 @@ describe("MCP OAuth end-to-end", () => {
 
     // The old access token (from original exchange) must NOT work after the session issued
     // for the refreshed user was separate — we validate this with a fresh garbage token
-    const garbageRes = await request(app)
+    const garbageRes = await agent
       .post("/mcp")
       .set("Authorization", "Bearer old-token-garbage")
       .set("Content-Type", "application/json")
@@ -611,9 +614,10 @@ describe("MCP OAuth end-to-end", () => {
 
     const stores = makeInMemoryStores();
     const app = buildTestApp(stores);
+    const agent = request.agent(app);
 
     // ── Register a client ─────────────────────────────────────────────────────
-    const regRes = await request(app)
+    const regRes = await agent
       .post("/register")
       .set("Content-Type", "application/json")
       .send({
@@ -626,7 +630,7 @@ describe("MCP OAuth end-to-end", () => {
 
     // ── Helper: run /authorize → /auth/callback → return fresh code ──────────
     async function mintFreshCode(): Promise<string> {
-      const authRes = await request(app)
+      const authRes = await agent
         .get(
           `/authorize?response_type=code` +
             `&client_id=${encodeURIComponent(clientId)}` +
@@ -640,7 +644,7 @@ describe("MCP OAuth end-to-end", () => {
       expect(authRes.status).toBe(302);
       const internalState = new URL(authRes.headers.location).searchParams.get("state")!;
 
-      const cbRes = await request(app)
+      const cbRes = await agent
         .get(`/auth/callback?code=gl-code&state=${encodeURIComponent(internalState)}`)
         .redirects(0);
       expect(cbRes.status).toBe(302);
@@ -652,7 +656,7 @@ describe("MCP OAuth end-to-end", () => {
     // ── Attempt 1: wrong verifier → must be rejected ──────────────────────────
     const badCode = await mintFreshCode();
 
-    const badRes = await request(app)
+    const badRes = await agent
       .post("/token")
       .type("form")
       .send({
@@ -672,7 +676,7 @@ describe("MCP OAuth end-to-end", () => {
     // ── Code is now consumed: same code with the CORRECT verifier also fails ──
     // exchangeAuthorizationCode calls codeStore.consume() before the PKCE check,
     // so the code is exhausted even on PKCE failure (single-use-on-failure).
-    const sameCodeCorrectVerifier = await request(app)
+    const sameCodeCorrectVerifier = await agent
       .post("/token")
       .type("form")
       .send({
@@ -688,7 +692,7 @@ describe("MCP OAuth end-to-end", () => {
     // ── A fresh code with the CORRECT verifier succeeds ───────────────────────
     const goodCode = await mintFreshCode();
 
-    const goodRes = await request(app)
+    const goodRes = await agent
       .post("/token")
       .type("form")
       .send({

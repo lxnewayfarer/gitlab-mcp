@@ -1,5 +1,5 @@
 import type { Response } from "express";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type {
   OAuthServerProvider,
   AuthorizationParams,
@@ -14,6 +14,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import {
   InvalidGrantError,
   InvalidTokenError,
+  InvalidRequestError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 
 import { oauthClientStore } from "./oauthClientStore.js";
@@ -26,6 +27,14 @@ import { startGitLabLogin } from "../http/authRoutes.js";
 
 function s256(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
+}
+
+/** Constant-time string comparison; false on length mismatch. */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
 }
 
 export function mcpOAuthProvider(deps?: {
@@ -60,9 +69,16 @@ export function mcpOAuthProvider(deps?: {
       params: AuthorizationParams,
       res: Response,
     ): Promise<void> {
+      // Defence-in-depth: only ever park a redirect_uri the client actually
+      // registered, so an authorization code can never be sent to an
+      // attacker-controlled URL even if upstream validation is bypassed.
+      if (!client.redirect_uris.includes(params.redirectUri)) {
+        throw new InvalidRequestError("redirect_uri is not registered for this client");
+      }
       const url = await startLogin(
         { stateStore, pendingStore },
         {
+          res,
           pending: {
             clientId: client.client_id,
             redirectUri: params.redirectUri,
@@ -97,7 +113,7 @@ export function mcpOAuthProvider(deps?: {
       if (redirectUri !== undefined && redirectUri !== data.redirectUri) {
         throw new InvalidGrantError("redirect_uri mismatch");
       }
-      if (!codeVerifier || s256(codeVerifier) !== data.codeChallenge) {
+      if (!codeVerifier || !safeEqual(s256(codeVerifier), data.codeChallenge)) {
         throw new InvalidGrantError("PKCE verification failed");
       }
 
@@ -116,18 +132,30 @@ export function mcpOAuthProvider(deps?: {
       _scopes?: string[],
       _resource?: URL,
     ): Promise<OAuthTokens> {
-      const ctx = await refresh.validate(refreshToken);
-      if (!ctx || ctx.clientId !== client.client_id) {
+      // Atomically rotate. rotate() resolves the chain identity from storage,
+      // detects reuse of an already-rotated token, and on any theft signal
+      // revokes the whole rotation family.
+      const result = await refresh.rotate(refreshToken);
+      if (result.reuse) {
+        // Replay of a rotated token — the family is now dead. Also revoke the
+        // user's sessions so access tokens minted off this chain stop working.
+        if (result.userId) await sessions.revokeAllForUser(result.userId).catch(() => undefined);
+        throw new InvalidGrantError("Refresh token reuse detected; session revoked");
+      }
+      if (!result.token || result.clientId !== client.client_id) {
         throw new InvalidGrantError("Invalid or expired refresh token");
       }
+
+      // Invalidate prior sessions for this user before issuing the new one, so a
+      // rotated-away access token does not stay live for its full TTL.
+      await sessions.revokeAllForUser(result.userId!).catch(() => undefined);
       // sessionService.issue needs a User; we only have userId here.
       // issue() reads only user.id, so passing a minimal object is safe.
-      const { token: accessToken } = await sessions.issue({ id: ctx.userId } as never);
-      const { token: newRefresh } = await refresh.rotate(refreshToken, ctx.userId, client.client_id);
+      const { token: accessToken } = await sessions.issue({ id: result.userId! } as never);
       return {
         access_token: accessToken,
         token_type: "bearer",
-        refresh_token: newRefresh,
+        refresh_token: result.token,
       };
     },
 
@@ -156,15 +184,15 @@ export function mcpOAuthProvider(deps?: {
       // Try as refresh token first.
       const refreshCtx = await refresh.validate(token).catch(() => null);
       if (refreshCtx) {
-        await refresh.revoke(token).catch(() => undefined);
         await refresh.revokeAllForUser(refreshCtx.userId).catch(() => undefined);
+        await sessions.revokeAllForUser(refreshCtx.userId).catch(() => undefined);
         return;
       }
 
       // Try as access (session) token.
       const sessionCtx = await sessions.validate(token).catch(() => null);
       if (sessionCtx) {
-        await sessions.revoke(token).catch(() => undefined);
+        await sessions.revokeAllForUser(sessionCtx.userId).catch(() => undefined);
         await refresh.revokeAllForUser(sessionCtx.userId).catch(() => undefined);
         return;
       }

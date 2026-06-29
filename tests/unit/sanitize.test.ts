@@ -58,6 +58,23 @@ describe("sanitizeParams", () => {
     expect(out.items[1].id).toBe(2);
   });
 
+  it("redacts GitLab token patterns embedded in free-text values", () => {
+    const out = sanitizeParams({
+      title: "see glpat-ABCDEFGHIJ1234567890 for access",
+      body: "token gloas-0123456789abcdef0123456789abcdef0123",
+      note: "no secrets here",
+    }) as Record<string, string>;
+    expect(out.title).not.toMatch(/glpat-ABCDEFGHIJ1234567890/);
+    expect(out.title).toContain("[REDACTED]");
+    expect(out.body).not.toMatch(/gloas-/);
+    expect(out.note).toBe("no secrets here");
+  });
+
+  it("redacts a token pasted as a bare value in a normal field", () => {
+    const out = sanitizeParams({ comment: "glpat-xxxxxxxxxxxxxxxxxxxx" }) as Record<string, string>;
+    expect(out.comment).toBe("[REDACTED]");
+  });
+
   it("passes primitives and null through unchanged", () => {
     expect(sanitizeParams(null)).toBeNull();
     expect(sanitizeParams(42)).toBe(42);

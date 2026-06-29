@@ -40,25 +40,73 @@ export type AppConfig = z.infer<typeof schema> & {
 };
 
 function decodeKey(raw: string): Buffer {
-  // Accept hex (64 chars) or base64; must decode to exactly 32 bytes.
-  let buf: Buffer;
+  // Accept ONLY strict 64-char hex OR strict base64 that round-trips to exactly
+  // 32 bytes. Buffer.from(_, "base64") is lenient (it silently ignores invalid
+  // characters), so a low-entropy ASCII passphrase could otherwise decode to
+  // "some" 32-byte buffer and be accepted as the AES key. We reject anything
+  // that does not re-encode to the same value.
   if (/^[0-9a-fA-F]{64}$/.test(raw)) {
-    buf = Buffer.from(raw, "hex");
-  } else {
-    buf = Buffer.from(raw, "base64");
+    return Buffer.from(raw, "hex");
   }
-  if (buf.length !== 32) {
+
+  const buf = Buffer.from(raw, "base64");
+  const reEncoded = buf.toString("base64").replace(/=+$/, "");
+  const normalizedInput = raw.replace(/=+$/, "");
+  if (buf.length !== 32 || reEncoded !== normalizedInput) {
     throw new Error(
-      `ENCRYPTION_KEY must decode to 32 bytes (got ${buf.length}). Provide 64 hex chars or 32-byte base64.`,
+      "ENCRYPTION_KEY must be exactly 64 hex chars or valid base64 of 32 bytes. " +
+        "Generate one with: openssl rand -hex 32",
     );
   }
   return buf;
+}
+
+const WEAK_DB_PASSWORDS = ["gitlab_mcp", "postgres", "password", "changeme"];
+
+/**
+ * In production, refuse to start with insecure defaults that are fine for local
+ * dev: plaintext http origins, localhost datastores, and well-known weak DB
+ * passwords. Fail-fast at boot rather than silently running insecurely.
+ */
+function assertProductionHardening(cfg: z.infer<typeof schema>): void {
+  if (cfg.NODE_ENV !== "production") return;
+  const problems: string[] = [];
+
+  if (cfg.PUBLIC_BASE_URL.startsWith("http://")) {
+    problems.push("PUBLIC_BASE_URL must use https in production");
+  }
+  if (cfg.GITLAB_REDIRECT_URI.startsWith("http://")) {
+    problems.push("GITLAB_REDIRECT_URI must use https in production");
+  }
+  for (const [name, url] of [
+    ["DATABASE_URL", cfg.DATABASE_URL],
+    ["REDIS_URL", cfg.REDIS_URL],
+  ] as const) {
+    if (/@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url) || /\/\/(localhost|127\.0\.0\.1)/.test(url)) {
+      problems.push(`${name} must not point at localhost in production`);
+    }
+  }
+  const dbPw = (() => {
+    try {
+      return decodeURIComponent(new URL(cfg.DATABASE_URL).password);
+    } catch {
+      return "";
+    }
+  })();
+  if (dbPw && WEAK_DB_PASSWORDS.includes(dbPw)) {
+    problems.push("DATABASE_URL uses a well-known weak password; set a strong POSTGRES_PASSWORD");
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`Insecure production configuration:\n  - ${problems.join("\n  - ")}`);
+  }
 }
 
 let cached: AppConfig | null = null;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = schema.parse(env);
+  assertProductionHardening(parsed);
   return {
     ...parsed,
     gitlabApiBase: `${parsed.GITLAB_BASE_URL.replace(/\/$/, "")}/api/v4`,

@@ -60,6 +60,7 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
   @@map("sessions")
 }
 
@@ -101,6 +102,10 @@ model OAuthRefreshToken {
   tokenHash String    @unique
   userId    String
   clientId  String
+  // Rotation chain id. All tokens minted from a single authorization-code grant
+  // (the original token and every token it rotates into) share one familyId.
+  // Presenting an already-rotated token is reuse — the whole family is revoked.
+  familyId  String
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
@@ -109,5 +114,8 @@ model OAuthRefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([clientId])
+  @@index([familyId])
+  @@index([expiresAt])
   @@map("oauth_refresh_tokens")
 }

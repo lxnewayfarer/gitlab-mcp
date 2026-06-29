@@ -56,6 +56,24 @@ function registerTool(
     async (args: unknown) => {
       const startedAt = Date.now();
       const sanitized = sanitizeParams(args);
+
+      // Audit writes must never change what the caller sees: a failed audit
+      // persist must not turn a successful GitLab mutation into a tool error,
+      // nor mask the original error on the failure path. Failures are logged so
+      // the "every tool call is audited" guarantee gaps are observable.
+      const recordAudit = async (
+        entry: Parameters<typeof deps.audit.record>[0],
+      ): Promise<void> => {
+        try {
+          await deps.audit.record(entry);
+        } catch (auditErr) {
+          console.error(
+            `[audit] failed to persist audit log for tool=${tool.name} user=${auth.userId} status=${entry.status}:`,
+            auditErr,
+          );
+        }
+      };
+
       try {
         const accessToken = await deps.tokens.getAccessToken(auth.userId);
         const gitlab = deps.makeGitLab(accessToken);
@@ -63,7 +81,7 @@ function registerTool(
 
         const result = await tool.handler(args, ctx);
 
-        await deps.audit.record({
+        await recordAudit({
           userId: auth.userId,
           gitlabUsername: auth.username,
           toolName: tool.name,
@@ -77,7 +95,7 @@ function registerTool(
         };
       } catch (err) {
         const mapped = mapError(err);
-        await deps.audit.record({
+        await recordAudit({
           userId: auth.userId,
           gitlabUsername: auth.username,
           toolName: tool.name,

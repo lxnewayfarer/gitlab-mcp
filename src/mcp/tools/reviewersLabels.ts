@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "../types.js";
-import { projectId, mergeRequestIid, presentMergeRequest } from "./common.js";
+import { projectId, mergeRequestIid, presentMergeRequest, labels as labelsSchema } from "./common.js";
 
 export const assignReviewer = defineTool({
   name: "assign_reviewer",
@@ -27,7 +27,7 @@ export const setLabels = defineTool({
   schema: z.object({
     project_id: projectId,
     merge_request_iid: mergeRequestIid,
-    labels: z.array(z.string()),
+    labels: labelsSchema,
   }),
   async handler(input, ctx) {
     await ctx.gitlab.assertProjectAccess(input.project_id);

@@ -31,10 +31,12 @@ cp .env.example .env
 | `GITLAB_CLIENT_ID` | OAuth Application ID from GitLab. | — (required) |
 | `GITLAB_CLIENT_SECRET` | OAuth Application Secret from GitLab. | — (required) |
 | `GITLAB_REDIRECT_URI` | OAuth callback URL. Must match the app registration exactly. | `${PUBLIC_BASE_URL}/auth/callback` |
-| `GITLAB_SCOPES` | Space-separated OAuth scopes. | `read_user api` |
+| `GITLAB_SCOPES` | Space-separated OAuth scopes. The `api` scope grants full read/write GitLab API access as the user — broader than the 9-tool surface strictly needs, but required because the tools perform write operations. | `read_user api` |
 | `ENCRYPTION_KEY` | 32-byte key (hex or base64) for AES-256-GCM token encryption. | — (required) |
 | `SESSION_TTL_HOURS` | Lifetime of issued bearer/session tokens. | `168` (7 days) |
 | `TOKEN_REFRESH_SKEW_SECONDS` | Refresh GitLab tokens this many seconds before expiry. | `60` |
+| `OAUTH_CODE_TTL_SECONDS` | Lifetime of the short-lived authorization codes issued to MCP clients during the OAuth flow. | `60` |
+| `OAUTH_REFRESH_TTL_HOURS` | Lifetime of the opaque, rotating refresh tokens issued to MCP clients. | `720` (30 days) |
 
 ### Generating `ENCRYPTION_KEY`
 
@@ -84,6 +86,49 @@ docker compose up --build
 
 This builds the app image, starts all services, runs migrations automatically
 on startup, and exposes the server on `http://localhost:3000`.
+
+## Connecting Claude Code
+
+Once the server is running (locally or via Docker), add it to Claude Code as an
+HTTP MCP server:
+
+```bash
+claude mcp add --transport http gitlab http://localhost:3000/mcp
+```
+
+> Replace `http://localhost:3000` with your `PUBLIC_BASE_URL` if the server is
+> deployed elsewhere. The path is always `/mcp`.
+
+On first use, Claude Code authenticates via the server's built-in OAuth flow —
+no token to copy by hand:
+
+1. Claude Code discovers the server metadata at
+   `/.well-known/oauth-authorization-server`.
+2. It registers itself via `POST /register` (Dynamic Client Registration).
+3. Your browser opens the GitLab login page — sign in with **your own GitLab
+   account** (once).
+4. GitLab redirects back; Claude Code exchanges the code for opaque session +
+   refresh tokens and stores them. Tokens refresh automatically before expiry.
+
+Verify the connection and inspect the available tools:
+
+```bash
+claude mcp list          # should show "gitlab" as connected
+```
+
+In a Claude Code session, run `/mcp` to see the 9 GitLab tools.
+
+**If your client can't do OAuth** (or you prefer a manual token), use the
+browser fallback: open `http://localhost:3000/auth/login`, authorize with
+GitLab, copy the bearer token shown, and add it as a header:
+
+```bash
+claude mcp add --transport http gitlab http://localhost:3000/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+See [oauth.md](./oauth.md#8-connecting-an-mcp-client-eg-claude-code-via-oauth)
+for the full flow and common pitfalls.
 
 ## Running migrations
 

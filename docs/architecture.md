@@ -76,7 +76,7 @@ flowchart TD
 | `repositories/` | Persistence for users, OAuth accounts, sessions, and audit logs. |
 | `mcp/` | The 9 tool definitions (Zod-validated) and their handlers. |
 | `middleware/` | Bearer-token authentication, error mapping, and audit logging. |
-| `http/` | Express app wiring: auth routes, the `/mcp` endpoint, and `/healthz`. |
+| `http/` | Express app wiring: `/auth` routes, the `/mcp` endpoint, and `/healthz`. It also mounts the SDK `mcpAuthRouter`, which serves the server's own OAuth Authorization Server endpoints — `/authorize`, `/token`, `/register`, `/revoke`, and the `/.well-known/*` discovery documents — for MCP clients that authenticate via OAuth. |
 
 ## OAuth login flow
 
