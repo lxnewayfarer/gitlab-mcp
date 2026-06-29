@@ -10,6 +10,7 @@ import { addComment } from "../../src/mcp/tools/comments.js";
 import { getPipelineStatus, listPipelines } from "../../src/mcp/tools/pipelines.js";
 import { assignReviewer, setLabels } from "../../src/mcp/tools/reviewersLabels.js";
 import { getCurrentUser as getCurrentUserTool, findUser } from "../../src/mcp/tools/users.js";
+import { getMergeRequestDiff, getMergeRequestVersions as getMrVersionsTool } from "../../src/mcp/tools/diffs.js";
 import { buildMcpServer } from "../../src/mcp/server.js";
 import type { AuthContext, ToolContext } from "../../src/mcp/types.js";
 
@@ -92,6 +93,16 @@ function makeStub() {
     findUserByUsername: vi.fn(async (username: string) => {
       calls.push("findUserByUsername");
       return username === "ghost" ? null : { id: 3, username, name: "Bob" };
+    }),
+    getMergeRequestDiffs: vi.fn(async () => {
+      calls.push("getMergeRequestDiffs");
+      return [
+        { old_path: "a", new_path: "a", diff: "@@", new_file: false, renamed_file: false, deleted_file: false },
+      ];
+    }),
+    getMergeRequestVersions: vi.fn(async () => {
+      calls.push("getMergeRequestVersions");
+      return [{ base_commit_sha: "base", head_commit_sha: "head", start_commit_sha: "start" }];
     }),
   };
   return { stub, calls };
@@ -252,6 +263,35 @@ describe("MCP tool handlers", () => {
     const { stub } = makeStub();
     const out = await findUser.handler({ username: "ghost" }, ctxWith(stub));
     expect(out).toBeNull();
+  });
+
+  it("get_merge_request_diff: access first, returns {files}", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await getMergeRequestDiff.handler(
+      { project_id: 7, merge_request_iid: 5 },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "getMergeRequestDiffs"]);
+    expect(stub.getMergeRequestDiffs).toHaveBeenCalledWith(7, 5);
+    expect(out.files[0].new_path).toBe("a");
+  });
+
+  it("get_merge_request_versions: returns latest version SHAs", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await getMrVersionsTool.handler(
+      { project_id: 7, merge_request_iid: 5 },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "getMergeRequestVersions"]);
+    expect(out).toEqual({ base_commit_sha: "base", head_commit_sha: "head", start_commit_sha: "start" });
+  });
+
+  it("get_merge_request_versions: throws not_found when empty", async () => {
+    const { stub } = makeStub();
+    stub.getMergeRequestVersions = vi.fn(async () => []);
+    await expect(
+      getMrVersionsTool.handler({ project_id: 7, merge_request_iid: 5 }, ctxWith(stub)),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });
 
