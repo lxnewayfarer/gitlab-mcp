@@ -164,4 +164,40 @@ describe("GitLabService", () => {
     const svc = new GitLabService("tok", fetchImpl as any);
     expect(await svc.findUserByUsername("ghost")).toBeNull();
   });
+
+  it("getMergeRequestDiffs stitches multiple pages", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse([{ old_path: "a", new_path: "a", diff: "@@1", new_file: false, renamed_file: false, deleted_file: false }], {
+          headers: { "x-next-page": "2" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse([{ old_path: "b", new_path: "b", diff: "@@2", new_file: true, renamed_file: false, deleted_file: false }], {
+          headers: { "x-next-page": "" },
+        }),
+      );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const files = await svc.getMergeRequestDiffs(7, 5);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain("/merge_requests/5/diffs");
+    expect(String(fetchImpl.mock.calls[0][0])).toContain("per_page=100");
+    expect(String(fetchImpl.mock.calls[1][0])).toContain("page=2");
+    expect(files.map((f) => f.new_path)).toEqual(["a", "b"]);
+  });
+
+  it("getMergeRequestVersions GETs the versions path", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse([
+        { base_commit_sha: "base", head_commit_sha: "head", start_commit_sha: "start" },
+      ]),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const versions = await svc.getMergeRequestVersions("g/p", 9);
+    expect(String(fetchImpl.mock.calls[0][0])).toBe(
+      "https://gitlab.example.com/api/v4/projects/g%2Fp/merge_requests/9/versions",
+    );
+    expect(versions[0]).toEqual({ base_commit_sha: "base", head_commit_sha: "head", start_commit_sha: "start" });
+  });
 });

@@ -41,6 +41,21 @@ export interface User {
   state?: string;
 }
 
+export interface DiffFile {
+  old_path: string;
+  new_path: string;
+  diff: string;
+  new_file: boolean;
+  renamed_file: boolean;
+  deleted_file: boolean;
+}
+
+export interface MergeRequestVersion {
+  base_commit_sha: string;
+  head_commit_sha: string;
+  start_commit_sha: string;
+}
+
 export interface Pipeline {
   id: number;
   iid?: number;
@@ -292,6 +307,41 @@ export class GitLabService {
       { body: { body } },
     );
     return data;
+  }
+
+  /**
+   * Full per-file diff of an MR. Auto-paginates: the agent always wants the whole
+   * diff, so we loop pages (per_page=100) until GitLab stops setting x-next-page.
+   */
+  async getMergeRequestDiffs(
+    projectId: string | number,
+    iid: number,
+  ): Promise<DiffFile[]> {
+    const out: DiffFile[] = [];
+    let page = 1;
+    for (;;) {
+      const { data, headers } = await this.request<DiffFile[]>(
+        "GET",
+        `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}/diffs`,
+        { query: { page, per_page: 100 } },
+      );
+      out.push(...data);
+      const next = headers.get("x-next-page");
+      if (!next) break;
+      page = Number(next);
+    }
+    return out;
+  }
+
+  async getMergeRequestVersions(
+    projectId: string | number,
+    iid: number,
+  ): Promise<MergeRequestVersion[]> {
+    const { data } = await this.request<MergeRequestVersion[]>(
+      "GET",
+      `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}/versions`,
+    );
+    return data ?? [];
   }
 
   // --- users ---------------------------------------------------------------
