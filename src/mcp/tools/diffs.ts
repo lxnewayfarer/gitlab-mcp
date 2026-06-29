@@ -44,10 +44,10 @@ export const getMergeRequestVersions = defineTool({
       input.project_id,
       input.merge_request_iid,
     );
-    const latest = versions[0];
-    if (!latest) {
+    if (versions.length === 0) {
       throw new GitLabApiError(404, "This merge request has no diff versions yet.");
     }
+    const latest = versions[0];
     return {
       base_commit_sha: latest.base_commit_sha,
       head_commit_sha: latest.head_commit_sha,

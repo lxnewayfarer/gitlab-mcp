@@ -15,6 +15,7 @@ import { listMergeRequestDiscussions, replyToDiscussion } from "../../src/mcp/to
 import { approveMergeRequest, unapproveMergeRequest } from "../../src/mcp/tools/approvals.js";
 import { buildMcpServer } from "../../src/mcp/server.js";
 import type { AuthContext, ToolContext } from "../../src/mcp/types.js";
+import { TOOLS } from "../../src/mcp/registry.js";
 
 beforeAll(() => installTestConfig());
 
@@ -287,9 +288,10 @@ describe("MCP tool handlers", () => {
   });
 
   it("find_user: returns null when no user matches", async () => {
-    const { stub } = makeStub();
+    const { stub, calls } = makeStub();
     const out = await findUser.handler({ username: "ghost" }, ctxWith(stub));
     expect(out).toBeNull();
+    expect(calls).toEqual(["findUserByUsername"]);
   });
 
   it("get_merge_request_diff: access first, returns {files}", async () => {
@@ -314,11 +316,15 @@ describe("MCP tool handlers", () => {
   });
 
   it("get_merge_request_versions: throws not_found when empty", async () => {
-    const { stub } = makeStub();
-    stub.getMergeRequestVersions = vi.fn(async () => []);
+    const { stub, calls } = makeStub();
+    stub.getMergeRequestVersions = vi.fn(async () => {
+      calls.push("getMergeRequestVersions");
+      return [];
+    });
     await expect(
       getMrVersionsTool.handler({ project_id: 7, merge_request_iid: 5 }, ctxWith(stub)),
     ).rejects.toMatchObject({ status: 404 });
+    expect(calls).toEqual(["assertProjectAccess", "getMergeRequestVersions"]);
   });
 
   it("list_merge_request_discussions: flattens author, passes position through", async () => {
@@ -333,6 +339,26 @@ describe("MCP tool handlers", () => {
     expect(out.items[0].notes[0].author).toBe("bob");
     expect(out.items[0].notes[0].position).toEqual({ new_line: 4 });
     expect(out.pagination.page).toBe(1);
+  });
+
+  it("list_merge_request_discussions: omits position key when note has none", async () => {
+    const { stub } = makeStub();
+    stub.listDiscussions = vi.fn(async () => ({
+      items: [
+        {
+          id: "disc-2",
+          notes: [
+            { id: 22, body: "no pos", author: { id: 3, username: "dave" }, created_at: "c" },
+          ],
+        },
+      ],
+      pagination: { page: 1, perPage: 20, total: 1, totalPages: 1, nextPage: null },
+    }));
+    const out: any = await listMergeRequestDiscussions.handler(
+      { project_id: 7, merge_request_iid: 5, page: 1, per_page: 20 },
+      ctxWith(stub),
+    );
+    expect("position" in out.items[0].notes[0]).toBe(false);
   });
 
   it("reply_to_discussion: returns {note_id}", async () => {
@@ -455,8 +481,6 @@ describe("buildMcpServer audit wrapper", () => {
     spy.mockRestore();
   });
 });
-
-import { TOOLS } from "../../src/mcp/registry.js";
 
 describe("tool registry", () => {
   it("registers all 17 tools with unique names", () => {

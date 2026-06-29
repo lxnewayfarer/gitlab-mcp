@@ -254,4 +254,25 @@ describe("GitLabService", () => {
     );
     expect(opts.method).toBe("POST");
   });
+
+  it("requestData throws 502 when response body is empty (204)", async () => {
+    // getCurrentUser uses requestData; a 204 response produces data=null which
+    // requestData should surface as a 502 GitLabApiError.
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const err = await svc.getCurrentUser().catch((e) => e);
+    expect(err).toBeInstanceOf(GitLabApiError);
+    expect(err.status).toBe(502);
+    expect(err.message).toMatch(/empty response/i);
+  });
+
+  it("replyToDiscussion URL-encodes reserved chars in discussionId", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ id: 99, body: "ok", author: { id: 2, username: "bob" }, created_at: "c" }),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    await svc.replyToDiscussion("g/p", 9, "disc/1", "reply");
+    const [url] = fetchImpl.mock.calls[0];
+    expect(String(url)).toContain("/discussions/disc%2F1/notes");
+  });
 });
