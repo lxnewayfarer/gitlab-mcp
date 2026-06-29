@@ -87,6 +87,33 @@ export interface Pipeline {
   finished_at?: string | null;
 }
 
+export interface Job {
+  id: number;
+  name: string;
+  stage: string;
+  status: string;
+  allow_failure: boolean;
+  duration: number | null;
+  web_url: string;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface RepositoryFile {
+  file_path: string;
+  size: number;
+  /**
+   * How `content` is encoded: "text" for a decoded UTF-8 string, or "base64"
+   * for a binary file we could not safely decode as text (content is then the
+   * raw base64 the caller can decode themselves).
+   */
+  encoding: "text" | "base64";
+  content: string;
+  blob_id: string;
+  ref: string;
+}
+
 export interface ListResult<T> {
   items: T[];
   pagination: {
@@ -113,6 +140,11 @@ export interface ListPipelinesParams {
   perPage?: number;
 }
 
+export interface ListPipelineJobsParams {
+  page?: number;
+  perPage?: number;
+}
+
 type Query = Record<string, string | number | boolean | undefined | null>;
 
 export class GitLabService {
@@ -127,20 +159,52 @@ export class GitLabService {
 
   // --- low-level request helper ------------------------------------------
 
-  private async request<T>(
-    method: string,
-    path: string,
-    opts: { query?: Query; body?: unknown } = {},
-  ): Promise<{ data: T; headers: Headers }> {
+  private buildUrl(path: string, query?: Query): string {
     const url = new URL(this.base + path);
-    if (opts.query) {
-      for (const [k, v] of Object.entries(opts.query)) {
+    if (query) {
+      for (const [k, v] of Object.entries(query)) {
         if (v !== undefined && v !== null && v !== "") {
           url.searchParams.set(k, String(v));
         }
       }
     }
+    return url.toString();
+  }
 
+  /**
+   * Performs the fetch and, on a non-2xx response, throws a GitLabApiError
+   * carrying GitLab's structured {message,error} string (falling back to the
+   * status text). The whole body is never echoed — only the structured field —
+   * so arbitrary server content can't leak downstream.
+   */
+  private async fetchOrThrow(
+    method: string,
+    url: string,
+    init: { headers: Record<string, string>; body?: string },
+  ): Promise<Response> {
+    const res = await this.fetchImpl(url, { method, headers: init.headers, body: init.body });
+    if (!res.ok) {
+      const retryAfter = Number(res.headers.get("retry-after")) || undefined;
+      let message = res.statusText;
+      try {
+        const errJson = (await res.json()) as { message?: unknown; error?: unknown };
+        message =
+          (typeof errJson.message === "string" && errJson.message) ||
+          (typeof errJson.error === "string" && errJson.error) ||
+          res.statusText;
+      } catch {
+        /* keep statusText */
+      }
+      throw new GitLabApiError(res.status, message, retryAfter);
+    }
+    return res;
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    opts: { query?: Query; body?: unknown } = {},
+  ): Promise<{ data: T; headers: Headers }> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.accessToken}`,
       Accept: "application/json",
@@ -151,26 +215,7 @@ export class GitLabService {
       body = JSON.stringify(opts.body);
     }
 
-    const res = await this.fetchImpl(url.toString(), { method, headers, body });
-
-    if (!res.ok) {
-      const retryAfter = Number(res.headers.get("retry-after")) || undefined;
-      let message = res.statusText;
-      try {
-        const errJson = (await res.json()) as { message?: unknown; error?: unknown };
-        // Use GitLab's structured message/error string if present; otherwise
-        // keep the status text. Never dump the whole body (JSON.stringify),
-        // which can echo arbitrary server-provided content downstream.
-        message =
-          (typeof errJson.message === "string" && errJson.message) ||
-          (typeof errJson.error === "string" && errJson.error) ||
-          res.statusText;
-      } catch {
-        /* keep statusText */
-      }
-      throw new GitLabApiError(res.status, message, retryAfter);
-    }
-
+    const res = await this.fetchOrThrow(method, this.buildUrl(path, opts.query), { headers, body });
     const data = (res.status === 204 ? null : await res.json()) as T;
     return { data, headers: res.headers };
   }
@@ -191,6 +236,22 @@ export class GitLabService {
       throw new GitLabApiError(502, "GitLab returned an empty response where data was expected.");
     }
     return res as { data: T; headers: Headers };
+  }
+
+  /**
+   * Like request() but for endpoints that return plain text rather than JSON
+   * (e.g. a job trace). Shares the same URL build + error path (so a non-2xx
+   * surfaces GitLab's structured message), then returns the body as a string.
+   */
+  private async requestText(
+    method: string,
+    path: string,
+    opts: { query?: Query } = {},
+  ): Promise<string> {
+    const res = await this.fetchOrThrow(method, this.buildUrl(path, opts.query), {
+      headers: { Authorization: `Bearer ${this.accessToken}`, Accept: "text/plain" },
+    });
+    return res.text();
   }
 
   private encodeProjectId(projectId: string | number): string {
@@ -411,6 +472,73 @@ export class GitLabService {
       },
     );
     return { items: data, pagination: this.paginationFrom(headers, page, perPage) };
+  }
+
+  async listPipelineJobs(
+    projectId: string | number,
+    pipelineId: number,
+    params: ListPipelineJobsParams,
+  ): Promise<ListResult<Job>> {
+    const page = params.page ?? 1;
+    const perPage = params.perPage ?? 20;
+    const { data, headers } = await this.request<Job[]>(
+      "GET",
+      `/projects/${this.encodeProjectId(projectId)}/pipelines/${pipelineId}/jobs`,
+      { query: { page, per_page: perPage } },
+    );
+    return { items: data, pagination: this.paginationFrom(headers, page, perPage) };
+  }
+
+  /**
+   * Raw CI job trace (log). Returns plain text; the caller is responsible for
+   * any truncation / ANSI stripping.
+   */
+  async getJobTrace(projectId: string | number, jobId: number): Promise<string> {
+    return this.requestText(
+      "GET",
+      `/projects/${this.encodeProjectId(projectId)}/jobs/${jobId}/trace`,
+    );
+  }
+
+  // --- repository files ---------------------------------------------------
+
+  /**
+   * A single repository file at a given ref. GitLab returns the content
+   * base64-encoded; we decode to a utf-8 string. The file path is encoded whole
+   * (slashes become %2F) as the endpoint requires.
+   */
+  async getFile(
+    projectId: string | number,
+    path: string,
+    ref: string,
+  ): Promise<RepositoryFile> {
+    const { data } = await this.requestData<{
+      file_path: string;
+      size: number;
+      encoding: string;
+      content: string;
+      blob_id: string;
+      ref: string;
+    }>(
+      "GET",
+      `/projects/${this.encodeProjectId(projectId)}/repository/files/${encodeURIComponent(path)}`,
+      { query: { ref } },
+    );
+    // GitLab returns content base64-encoded. Decode to bytes, then return it as
+    // a UTF-8 string only if it round-trips losslessly (i.e. it's real text).
+    // Binary blobs (images, jars, …) are left as base64 with encoding:"base64"
+    // so we never hand back U+FFFD-mangled "text".
+    const raw = data.encoding === "base64" ? Buffer.from(data.content, "base64") : Buffer.from(data.content, "utf-8");
+    const text = raw.toString("utf-8");
+    const isText = Buffer.from(text, "utf-8").equals(raw);
+    return {
+      file_path: data.file_path,
+      size: data.size,
+      encoding: isText ? "text" : "base64",
+      content: isText ? text : raw.toString("base64"),
+      blob_id: data.blob_id,
+      ref: data.ref ?? ref,
+    };
   }
 
   // --- discussions -------------------------------------------------------

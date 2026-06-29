@@ -5,7 +5,7 @@ Guidance for Claude Code (and other AI agents) working in this repository.
 ## What this is
 
 A production-ready **MCP (Model Context Protocol) server** that lets AI agents
-interact with GitLab through a **curated set of tools (17 total)**. Every user
+interact with GitLab through a **curated set of tools (20 total)**. Every user
 authenticates with their own GitLab account via **OAuth 2.0**. The server calls
 **GitLab REST APIs directly** — it does NOT use the `glab` CLI.
 
@@ -31,7 +31,7 @@ src/
   auth/           OAuth flow, PKCE, session service, AES-256-GCM crypto, token refresh
   services/       GitLabService — the ONLY place allowed to call the GitLab REST API
   repositories/   Prisma data-access (user, oauthAccount, session, auditLog)
-  mcp/            MCP server, tool registry, 17 tool definitions + handlers
+  mcp/            MCP server, tool registry, 20 tool definitions + handlers
   middleware/     bearer auth, audit logging, error mapping
   http/           express app, /auth routes, /mcp route, /healthz
 ```
@@ -40,7 +40,7 @@ src/
 
 1. **Only `GitLabService` calls GitLab.** Tool handlers and routes must never
    `fetch` GitLab directly. Add new GitLab interactions as methods on the service.
-2. **Only the allowlisted tools exist (currently 17).** Do NOT add tools that
+2. **Only the allowlisted tools exist (currently 20).** Do NOT add tools that
    expose arbitrary API calls, repo/project/group/runner/variable administration,
    or a raw API proxy. User lookup is limited to `get_current_user` and
    `find_user` (username→id) — no user administration or enumeration beyond that.
@@ -53,7 +53,7 @@ src/
 5. **Every tool call is audited** (`AuditLog`) with secrets stripped from params.
 6. **Config comes from `src/config`** (zod-validated). Don't sprinkle `process.env`.
 
-## The tools (17)
+## The tools (20)
 
 **Merge requests:** `create_merge_request`, `update_merge_request`,
 `get_merge_request`, `list_merge_requests`, `get_merge_request_diff`,
@@ -65,7 +65,11 @@ src/
 **Review actions:** `assign_reviewer`, `set_labels`, `approve_merge_request`,
 `unapprove_merge_request`.
 
-**Pipelines:** `get_pipeline_status`, `list_pipelines`.
+**Pipelines & jobs:** `get_pipeline_status`, `list_pipelines`,
+`get_pipeline_jobs`, `get_job_log`.
+
+**Repository:** `get_file_content` (read a file at a given ref; read-only,
+scoped to the user's OAuth access — GitLab enforces 403/404).
 
 **User lookup:** `get_current_user`, `find_user`.
 

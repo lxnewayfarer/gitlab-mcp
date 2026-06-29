@@ -7,7 +7,8 @@ import {
   listMergeRequests,
 } from "../../src/mcp/tools/mergeRequests.js";
 import { addComment } from "../../src/mcp/tools/comments.js";
-import { getPipelineStatus, listPipelines } from "../../src/mcp/tools/pipelines.js";
+import { getPipelineStatus, listPipelines, getPipelineJobs, getJobLog } from "../../src/mcp/tools/pipelines.js";
+import { getFileContent } from "../../src/mcp/tools/files.js";
 import { assignReviewer, setLabels } from "../../src/mcp/tools/reviewersLabels.js";
 import { getCurrentUser as getCurrentUserTool, findUser } from "../../src/mcp/tools/users.js";
 import { getMergeRequestDiff, getMergeRequestVersions as getMrVersionsTool } from "../../src/mcp/tools/diffs.js";
@@ -54,6 +55,19 @@ const PIPELINE = {
 
 const NOTE = { id: 11, body: "hi", author: { id: 2, username: "carol" }, created_at: "c" };
 
+const JOB = {
+  id: 200,
+  name: "build",
+  stage: "build",
+  status: "failed",
+  allow_failure: false,
+  duration: 42,
+  web_url: "https://gl/j/200",
+  created_at: "c",
+  started_at: "s",
+  finished_at: "f",
+};
+
 /** A GitLabService stub that records calls and asserts access-check ordering. */
 function makeStub() {
   const calls: string[] = [];
@@ -88,6 +102,26 @@ function makeStub() {
     listPipelines: vi.fn(async () => {
       calls.push("listPipelines");
       return { items: [PIPELINE], pagination: { page: 1, perPage: 20, total: 1, totalPages: 1, nextPage: null } };
+    }),
+    listPipelineJobs: vi.fn(async () => {
+      calls.push("listPipelineJobs");
+      return { items: [JOB], pagination: { page: 1, perPage: 20, total: 1, totalPages: 1, nextPage: null } };
+    }),
+    getJobTrace: vi.fn(async () => {
+      calls.push("getJobTrace");
+      // Includes an ANSI color sequence that the tool must strip.
+      return "\u001b[31mboom\u001b[0m\nstack trace line\n";
+    }),
+    getFile: vi.fn(async () => {
+      calls.push("getFile");
+      return {
+        file_path: "src/a.ts",
+        size: 12,
+        encoding: "text",
+        content: "hello\nworld\n",
+        blob_id: "deadbeef",
+        ref: "main",
+      };
     }),
     getCurrentUser: vi.fn(async () => {
       calls.push("getCurrentUser");
@@ -253,6 +287,127 @@ describe("MCP tool handlers", () => {
       perPage: undefined,
     });
     expect(out.items[0].id).toBe(55);
+  });
+
+  it("get_pipeline_jobs: access first, maps pagination params, compact fields", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await getPipelineJobs.handler(
+      { project_id: 7, pipeline_id: 55, page: 2, per_page: 50 },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "listPipelineJobs"]);
+    expect(stub.listPipelineJobs).toHaveBeenCalledWith(7, 55, { page: 2, perPage: 50 });
+    expect(out.items[0]).toEqual({
+      id: 200,
+      name: "build",
+      stage: "build",
+      status: "failed",
+      allow_failure: false,
+      duration: 42,
+      url: "https://gl/j/200",
+      created_at: "c",
+      started_at: "s",
+      finished_at: "f",
+    });
+    expect(out.pagination.page).toBe(1);
+  });
+
+  it("get_job_log: strips ANSI, returns tail by default with byte accounting", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await getJobLog.handler(
+      { project_id: 7, job_id: 200 },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "getJobTrace"]);
+    expect(stub.getJobTrace).toHaveBeenCalledWith(7, 200);
+    // ANSI escapes removed.
+    expect(out.log).toBe("boom\nstack trace line\n");
+    expect(out.from).toBe("end");
+    expect(out.truncated).toBe(false);
+    expect(out.total_bytes).toBe(Buffer.byteLength("boom\nstack trace line\n", "utf-8"));
+    expect(out.returned_bytes).toBe(out.total_bytes);
+  });
+
+  it("get_job_log: from='start' returns the head slice and marks truncation", async () => {
+    const { stub } = makeStub();
+    stub.getJobTrace = vi.fn(async () => "abcdefghij"); // 10 bytes, no ANSI
+    const out: any = await getJobLog.handler(
+      { project_id: 7, job_id: 200, from: "start", tail_bytes: 4 },
+      ctxWith(stub),
+    );
+    expect(out.from).toBe("start");
+    expect(out.log).toBe("abcd");
+    expect(out.returned_bytes).toBe(4);
+    expect(out.total_bytes).toBe(10);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("get_job_log: from='end' returns the tail slice", async () => {
+    const { stub } = makeStub();
+    stub.getJobTrace = vi.fn(async () => "abcdefghij");
+    const out: any = await getJobLog.handler(
+      { project_id: 7, job_id: 200, from: "end", tail_bytes: 4 },
+      ctxWith(stub),
+    );
+    expect(out.log).toBe("ghij");
+    expect(out.truncated).toBe(true);
+  });
+
+  it("get_job_log: strips GitLab section markers and carriage returns", async () => {
+    const { stub } = makeStub();
+    // GitLab collapsible-section framing: \x1b[0Ksection_start:TS:name\r\x1b[0K<header>
+    stub.getJobTrace = vi.fn(
+      async () =>
+        "\u001b[0Ksection_start:1700000000:build\r\u001b[0KRunning build\nok\n" +
+        "\u001b[0Ksection_end:1700000000:build\r\u001b[0K",
+    );
+    const out: any = await getJobLog.handler(
+      { project_id: 7, job_id: 200, from: "start" },
+      ctxWith(stub),
+    );
+    expect(out.log).not.toContain("section_start");
+    expect(out.log).not.toContain("section_end");
+    expect(out.log).not.toContain("\r");
+    expect(out.log).toContain("Running build");
+    expect(out.log).toContain("ok");
+  });
+
+  it("get_file_content: access first, returns content + metadata", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await getFileContent.handler(
+      { project_id: 7, file_path: "src/a.ts", ref: "main" },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "getFile"]);
+    expect(stub.getFile).toHaveBeenCalledWith(7, "src/a.ts", "main");
+    expect(out).toEqual({
+      file_path: "src/a.ts",
+      ref: "main",
+      size: 12,
+      encoding: "text",
+      blob_id: "deadbeef",
+      content: "hello\nworld\n",
+      truncated: false,
+    });
+  });
+
+  it("get_file_content: truncates content over the 1 MiB cap", async () => {
+    const { stub } = makeStub();
+    const big = "x".repeat(1_048_576 + 100);
+    stub.getFile = vi.fn(async () => ({
+      file_path: "big.txt",
+      size: big.length,
+      encoding: "base64",
+      content: big,
+      blob_id: "b",
+      ref: "main",
+    }));
+    const out: any = await getFileContent.handler(
+      { project_id: 7, file_path: "big.txt", ref: "main" },
+      ctxWith(stub),
+    );
+    expect(out.truncated).toBe(true);
+    expect(Buffer.byteLength(out.content, "utf-8")).toBe(1_048_576);
   });
 
   it("assign_reviewer: updates MR with reviewer_ids", async () => {
@@ -483,10 +638,10 @@ describe("buildMcpServer audit wrapper", () => {
 });
 
 describe("tool registry", () => {
-  it("registers all 17 tools with unique names", () => {
-    expect(TOOLS).toHaveLength(17);
+  it("registers all 20 tools with unique names", () => {
+    expect(TOOLS).toHaveLength(20);
     const names = TOOLS.map((t) => t.name);
-    expect(new Set(names).size).toBe(17);
+    expect(new Set(names).size).toBe(20);
     for (const expected of [
       "get_current_user",
       "find_user",
@@ -496,6 +651,9 @@ describe("tool registry", () => {
       "reply_to_discussion",
       "approve_merge_request",
       "unapprove_merge_request",
+      "get_pipeline_jobs",
+      "get_job_log",
+      "get_file_content",
     ]) {
       expect(names).toContain(expected);
     }

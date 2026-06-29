@@ -30,6 +30,33 @@ export const discussionId = z
   .min(1)
   .describe("The discussion id returned by list_merge_request_discussions");
 
+/**
+ * Take the first or last `maxBytes` UTF-8 bytes of a string without splitting a
+ * multibyte character at the cut. A cut mid-character leaves a single trailing
+ * (for "start") or leading (for "end") U+FFFD replacement char; we drop exactly
+ * that one boundary char so we never emit a stray replacement glyph — and never
+ * touch replacement chars that were genuinely in the source.
+ *
+ * Returns the slice plus whether anything was cut, and operates on a Buffer the
+ * caller can pass in to avoid re-encoding the same string twice.
+ */
+export function sliceByBytes(
+  text: string,
+  maxBytes: number,
+  from: "start" | "end",
+  buf: Buffer = Buffer.from(text, "utf-8"),
+): { slice: string; truncated: boolean } {
+  if (buf.length <= maxBytes) return { slice: text, truncated: false };
+  const cut = from === "end" ? buf.subarray(buf.length - maxBytes) : buf.subarray(0, maxBytes);
+  let slice = cut.toString("utf-8");
+  // Strip at most one boundary replacement char (the partial multibyte char the
+  // byte cut produced), not a run — a leading/trailing U+FFFD already in the
+  // source must survive.
+  if (from === "end" && slice.startsWith("�")) slice = slice.slice(1);
+  else if (from === "start" && slice.endsWith("�")) slice = slice.slice(0, -1);
+  return { slice, truncated: true };
+}
+
 /** Compact MR shape returned to the agent. */
 export function presentMergeRequest(mr: {
   id: number;

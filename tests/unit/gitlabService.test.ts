@@ -14,6 +14,13 @@ function jsonResponse(body: unknown, init: { status?: number; headers?: Record<s
   });
 }
 
+function textResponse(body: string, init: { status?: number; headers?: Record<string, string> } = {}) {
+  return new Response(body, {
+    status: init.status ?? 200,
+    headers: { "content-type": "text/plain", ...(init.headers ?? {}) },
+  });
+}
+
 describe("GitLabService", () => {
   it("createMergeRequest posts the correct URL and body", async () => {
     const fetchImpl = vi.fn(async () =>
@@ -137,6 +144,86 @@ describe("GitLabService", () => {
     const url = String(fetchImpl.mock.calls[0][0]);
     expect(url).toContain("ref=main");
     expect(url).toContain("status=success");
+  });
+
+  it("listPipelineJobs GETs the pipeline jobs path with pagination", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse([{ id: 1, name: "build", stage: "build", status: "failed" }], {
+        headers: { "x-total": "1", "x-total-pages": "1", "x-next-page": "" },
+      }),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const res = await svc.listPipelineJobs("g/p", 55, { page: 2, perPage: 50 });
+    const url = String(fetchImpl.mock.calls[0][0]);
+    expect(url).toBe(
+      "https://gitlab.example.com/api/v4/projects/g%2Fp/pipelines/55/jobs?page=2&per_page=50",
+    );
+    expect(res.items[0].name).toBe("build");
+    expect(res.pagination.page).toBe(2);
+  });
+
+  it("getJobTrace GETs the trace path and returns plain text", async () => {
+    const fetchImpl = vi.fn(async () => textResponse("line1\nline2\n"));
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const trace = await svc.getJobTrace(7, 123);
+    const [url, opts] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe("https://gitlab.example.com/api/v4/projects/7/jobs/123/trace");
+    expect(opts.headers.Authorization).toBe("Bearer tok");
+    expect(trace).toBe("line1\nline2\n");
+  });
+
+  it("getJobTrace throws GitLabApiError on 404", async () => {
+    const fetchImpl = vi.fn(async () => textResponse("404 Not Found", { status: 404 }));
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const err = await svc.getJobTrace(7, 123).catch((e) => e);
+    expect(err).toBeInstanceOf(GitLabApiError);
+    expect(err.status).toBe(404);
+  });
+
+  it("getFile URL-encodes the whole path, forwards ref, and decodes text as utf-8", async () => {
+    const content = "hello\nworld\n";
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        file_path: "src/a.ts",
+        size: content.length,
+        encoding: "base64",
+        content: Buffer.from(content, "utf-8").toString("base64"),
+        blob_id: "deadbeef",
+        ref: "main",
+      }),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const file = await svc.getFile("g/p", "src/a.ts", "main");
+    const url = String(fetchImpl.mock.calls[0][0]);
+    // Path is encoded whole: slashes become %2F.
+    expect(url).toBe(
+      "https://gitlab.example.com/api/v4/projects/g%2Fp/repository/files/src%2Fa.ts?ref=main",
+    );
+    expect(file.content).toBe(content);
+    expect(file.blob_id).toBe("deadbeef");
+    // A text file round-trips, so it's reported as text (not the raw base64).
+    expect(file.encoding).toBe("text");
+  });
+
+  it("getFile keeps binary content as base64 instead of mangling it", async () => {
+    // Bytes that are not valid UTF-8 (a lone 0xFF) — a PNG header sentinel here.
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0x01]);
+    const b64 = bytes.toString("base64");
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        file_path: "logo.png",
+        size: bytes.length,
+        encoding: "base64",
+        content: b64,
+        blob_id: "cafef00d",
+        ref: "main",
+      }),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const file = await svc.getFile("g/p", "logo.png", "main");
+    expect(file.encoding).toBe("base64");
+    // Content is the original base64 — losslessly recoverable, no U+FFFD.
+    expect(Buffer.from(file.content, "base64").equals(bytes)).toBe(true);
   });
 
   it("getCurrentUser GETs /user", async () => {
