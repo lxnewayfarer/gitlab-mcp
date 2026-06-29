@@ -200,4 +200,33 @@ describe("GitLabService", () => {
     );
     expect(versions[0]).toEqual({ base_commit_sha: "base", head_commit_sha: "head", start_commit_sha: "start" });
   });
+
+  it("listDiscussions returns items + pagination", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        [{ id: "abc", notes: [{ id: 1, body: "hi", author: { id: 2, username: "bob" }, created_at: "c" }] }],
+        { headers: { "x-total": "1", "x-total-pages": "1", "x-next-page": "" } },
+      ),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const res = await svc.listDiscussions(7, 5, { page: 1, perPage: 20 });
+    expect(String(fetchImpl.mock.calls[0][0])).toContain("/merge_requests/5/discussions");
+    expect(res.items[0].id).toBe("abc");
+    expect(res.pagination.page).toBe(1);
+  });
+
+  it("replyToDiscussion POSTs to the discussion notes path", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ id: 42, body: "reply", author: { id: 2, username: "bob" }, created_at: "c" }),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const note = await svc.replyToDiscussion("g/p", 9, "disc-1", "reply");
+    const [url, opts] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe(
+      "https://gitlab.example.com/api/v4/projects/g%2Fp/merge_requests/9/discussions/disc-1/notes",
+    );
+    expect(opts.method).toBe("POST");
+    expect(JSON.parse(opts.body)).toEqual({ body: "reply" });
+    expect(note.id).toBe(42);
+  });
 });

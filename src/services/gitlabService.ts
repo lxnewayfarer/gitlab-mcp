@@ -56,6 +56,19 @@ export interface MergeRequestVersion {
   start_commit_sha: string;
 }
 
+export interface DiscussionNote {
+  id: number;
+  body: string;
+  author: { id: number; username: string };
+  created_at: string;
+  position?: unknown;
+}
+
+export interface Discussion {
+  id: string;
+  notes: DiscussionNote[];
+}
+
 export interface Pipeline {
   id: number;
   iid?: number;
@@ -392,5 +405,36 @@ export class GitLabService {
       },
     );
     return { items: data, pagination: this.paginationFrom(headers, page, perPage) };
+  }
+
+  // --- discussions -------------------------------------------------------
+
+  async listDiscussions(
+    projectId: string | number,
+    iid: number,
+    params: { page?: number; perPage?: number },
+  ): Promise<ListResult<Discussion>> {
+    const page = params.page ?? 1;
+    const perPage = params.perPage ?? 20;
+    const { data, headers } = await this.request<Discussion[]>(
+      "GET",
+      `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}/discussions`,
+      { query: { page, per_page: perPage } },
+    );
+    return { items: data, pagination: this.paginationFrom(headers, page, perPage) };
+  }
+
+  async replyToDiscussion(
+    projectId: string | number,
+    iid: number,
+    discussionId: string,
+    body: string,
+  ): Promise<Note> {
+    const { data } = await this.requestData<Note>(
+      "POST",
+      `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}/discussions/${encodeURIComponent(discussionId)}/notes`,
+      { body: { body } },
+    );
+    return data;
   }
 }
