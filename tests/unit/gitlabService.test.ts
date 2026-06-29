@@ -229,4 +229,29 @@ describe("GitLabService", () => {
     expect(JSON.parse(opts.body)).toEqual({ body: "reply" });
     expect(note.id).toBe(42);
   });
+
+  it("approveMergeRequest POSTs the approve path", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ approved_by: [{ user: { id: 2, username: "bob" } }] }),
+    );
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const res = await svc.approveMergeRequest(7, 5);
+    const [url, opts] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe(
+      "https://gitlab.example.com/api/v4/projects/7/merge_requests/5/approve",
+    );
+    expect(opts.method).toBe("POST");
+    expect(res.approved_by[0].user.username).toBe("bob");
+  });
+
+  it("unapproveMergeRequest POSTs unapprove and tolerates a 204", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const svc = new GitLabService("tok", fetchImpl as any);
+    await expect(svc.unapproveMergeRequest(7, 5)).resolves.toBeUndefined();
+    const [url, opts] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe(
+      "https://gitlab.example.com/api/v4/projects/7/merge_requests/5/unapprove",
+    );
+    expect(opts.method).toBe("POST");
+  });
 });

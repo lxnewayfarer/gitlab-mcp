@@ -69,6 +69,10 @@ export interface Discussion {
   notes: DiscussionNote[];
 }
 
+export interface Approval {
+  approved_by: Array<{ user: { id: number; username: string } }>;
+}
+
 export interface Pipeline {
   id: number;
   iid?: number;
@@ -436,5 +440,29 @@ export class GitLabService {
       { body: { body } },
     );
     return data;
+  }
+
+  // --- approvals ----------------------------------------------------------
+
+  async approveMergeRequest(
+    projectId: string | number,
+    iid: number,
+  ): Promise<Approval> {
+    const { data } = await this.requestData<Approval>(
+      "POST",
+      `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}/approve`,
+    );
+    return data;
+  }
+
+  async unapproveMergeRequest(
+    projectId: string | number,
+    iid: number,
+  ): Promise<void> {
+    // GitLab responds 204 with no body; request() returns null data, which we ignore.
+    await this.request<null>(
+      "POST",
+      `/projects/${this.encodeProjectId(projectId)}/merge_requests/${iid}/unapprove`,
+    );
   }
 }
