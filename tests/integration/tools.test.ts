@@ -12,6 +12,7 @@ import { assignReviewer, setLabels } from "../../src/mcp/tools/reviewersLabels.j
 import { getCurrentUser as getCurrentUserTool, findUser } from "../../src/mcp/tools/users.js";
 import { getMergeRequestDiff, getMergeRequestVersions as getMrVersionsTool } from "../../src/mcp/tools/diffs.js";
 import { listMergeRequestDiscussions, replyToDiscussion } from "../../src/mcp/tools/discussions.js";
+import { approveMergeRequest, unapproveMergeRequest } from "../../src/mcp/tools/approvals.js";
 import { buildMcpServer } from "../../src/mcp/server.js";
 import type { AuthContext, ToolContext } from "../../src/mcp/types.js";
 
@@ -122,6 +123,13 @@ function makeStub() {
     replyToDiscussion: vi.fn(async () => {
       calls.push("replyToDiscussion");
       return { id: 77, body: "reply", author: { id: 2, username: "bob" }, created_at: "c" };
+    }),
+    approveMergeRequest: vi.fn(async () => {
+      calls.push("approveMergeRequest");
+      return { approved_by: [{ user: { id: 2, username: "bob" } }, { user: { id: 3, username: "carol" } }] };
+    }),
+    unapproveMergeRequest: vi.fn(async () => {
+      calls.push("unapproveMergeRequest");
     }),
   };
   return { stub, calls };
@@ -336,6 +344,28 @@ describe("MCP tool handlers", () => {
     expect(calls).toEqual(["assertProjectAccess", "replyToDiscussion"]);
     expect(stub.replyToDiscussion).toHaveBeenCalledWith(7, 5, "disc-1", "reply");
     expect(out).toEqual({ note_id: 77 });
+  });
+
+  it("approve_merge_request: returns {approved, approved_by usernames}", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await approveMergeRequest.handler(
+      { project_id: 7, merge_request_iid: 5 },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "approveMergeRequest"]);
+    expect(stub.approveMergeRequest).toHaveBeenCalledWith(7, 5);
+    expect(out).toEqual({ approved: true, approved_by: ["bob", "carol"] });
+  });
+
+  it("unapprove_merge_request: returns {unapproved:true}", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await unapproveMergeRequest.handler(
+      { project_id: 7, merge_request_iid: 5 },
+      ctxWith(stub),
+    );
+    expect(calls).toEqual(["assertProjectAccess", "unapproveMergeRequest"]);
+    expect(stub.unapproveMergeRequest).toHaveBeenCalledWith(7, 5);
+    expect(out).toEqual({ unapproved: true });
   });
 });
 
