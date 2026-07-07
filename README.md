@@ -1,7 +1,7 @@
 # GitLab MCP Server (OAuth)
 
 A production-ready **MCP (Model Context Protocol) server** that lets AI agents
-interact with GitLab through a **restricted set of 9 tools**. Every user
+interact with GitLab through a **curated set of 20 tools**. Every user
 authenticates with **their own GitLab account via OAuth 2.0** — no Personal
 Access Tokens. The server calls the GitLab REST API directly (no `glab` CLI).
 
@@ -21,7 +21,7 @@ User → GitLab OAuth Login → MCP Server → GitLab REST API
   server maps it to that user's GitLab session.
 - **Secure token storage** — GitLab tokens encrypted at rest (AES-256-GCM);
   session tokens stored only as sha-256 hashes.
-- **Strict tool allowlist** — only the 9 tools below; no raw API proxy, no
+- **Strict tool allowlist** — only the 20 tools below; no raw API proxy, no
   admin/destructive operations.
 - **Real GitLab authorization** — every action runs as the authenticated user
   with their own token; project access is checked before each call.
@@ -29,11 +29,24 @@ User → GitLab OAuth Login → MCP Server → GitLab REST API
 - **Streamable HTTP MCP transport**, PostgreSQL + Prisma, Redis session cache.
 - **Docker Compose** one-command deploy. Vitest unit + integration tests.
 
-## The 9 tools
+## The 20 tools
 
-`create_merge_request`, `update_merge_request`, `get_merge_request`,
-`list_merge_requests`, `add_comment`, `get_pipeline_status`, `list_pipelines`,
-`assign_reviewer`, `set_labels`.
+**Merge requests:** `create_merge_request`, `update_merge_request`,
+`get_merge_request`, `list_merge_requests`, `get_merge_request_diff`,
+`get_merge_request_versions`.
+
+**Comments & discussions:** `add_comment`, `list_merge_request_discussions`,
+`reply_to_discussion`.
+
+**Review actions:** `assign_reviewer`, `set_labels`, `approve_merge_request`,
+`unapprove_merge_request`.
+
+**Pipelines & jobs:** `get_pipeline_status`, `list_pipelines`,
+`get_pipeline_jobs`, `get_job_log`.
+
+**Repository:** `get_file_content` (read a file at a given ref; read-only).
+
+**User lookup:** `get_current_user`, `find_user`.
 
 ## Quick start (Docker)
 
