@@ -16,25 +16,11 @@ services:
       timeout: 3s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   app:
     build: .
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     environment:
       # Defaults to development so a local `docker compose up` works. For a real
@@ -44,7 +30,6 @@ services:
       PORT: 3000
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       DATABASE_URL: postgresql://${POSTGRES_USER:-gitlab_mcp}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env}@postgres:5432/${POSTGRES_DB:-gitlab_mcp}?schema=public
-      REDIS_URL: redis://redis:6379
       GITLAB_BASE_URL: ${GITLAB_BASE_URL:-https://gitlab.com}
       GITLAB_CLIENT_ID: ${GITLAB_CLIENT_ID:?set GITLAB_CLIENT_ID in your .env}
       GITLAB_CLIENT_SECRET: ${GITLAB_CLIENT_SECRET:?set GITLAB_CLIENT_SECRET in your .env}
@@ -60,4 +45,3 @@ services:
 
 volumes:
   pgdata:
-  redisdata:
