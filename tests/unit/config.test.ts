@@ -45,7 +45,7 @@ describe("ENCRYPTION_KEY validation", () => {
 });
 
 describe("production hardening gate", () => {
-  const prodBase = { ...base, NODE_ENV: "production", PUBLIC_BASE_URL: "https://mcp.example.com", GITLAB_REDIRECT_URI: "https://mcp.example.com/auth/callback", DATABASE_URL: "postgresql://u:strongpw@db.internal:5432/app", REDIS_URL: "redis://cache.internal:6379" };
+  const prodBase = { ...base, NODE_ENV: "production", PUBLIC_BASE_URL: "https://mcp.example.com", GITLAB_REDIRECT_URI: "https://mcp.example.com/auth/callback", DATABASE_URL: "postgresql://u:strongpw@db.internal:5432/app" };
 
   it("accepts a hardened production config", () => {
     expect(() => loadConfig(prodBase as NodeJS.ProcessEnv)).not.toThrow();

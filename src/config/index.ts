@@ -13,7 +13,6 @@ const schema = z.object({
   PUBLIC_BASE_URL: z.string().url().default("http://localhost:3000"),
 
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
 
   // GitLab instance + OAuth application credentials.
   GITLAB_BASE_URL: z.string().url().default("https://gitlab.com"),
@@ -80,7 +79,6 @@ function assertProductionHardening(cfg: z.infer<typeof schema>): void {
   }
   for (const [name, url] of [
     ["DATABASE_URL", cfg.DATABASE_URL],
-    ["REDIS_URL", cfg.REDIS_URL],
   ] as const) {
     if (/@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url) || /\/\/(localhost|127\.0\.0\.1)/.test(url)) {
       problems.push(`${name} must not point at localhost in production`);

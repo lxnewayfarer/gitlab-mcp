@@ -9,7 +9,6 @@ export function installTestConfig(overrides: Partial<AppConfig> = {}): AppConfig
     PORT: 3000,
     PUBLIC_BASE_URL: "http://localhost:3000",
     DATABASE_URL: "postgresql://test",
-    REDIS_URL: "redis://localhost:6379",
     GITLAB_BASE_URL: "https://gitlab.example.com",
     GITLAB_CLIENT_ID: "client-id",
     GITLAB_CLIENT_SECRET: "client-secret",
