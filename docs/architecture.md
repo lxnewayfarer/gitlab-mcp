@@ -40,7 +40,6 @@ flowchart TD
     end
     subgraph DB["database/"]
       PG[("PostgreSQL")]
-      RD[("Redis")]
     end
     subgraph AUTHL["auth/"]
       OAuth["OAuth + PKCE"]
@@ -59,7 +58,6 @@ flowchart TD
     REPO --> DB
     Routes --> AUTHL
     TP --> OAuth
-    Sess --> RD
     Sess --> R
     CFG -.-> SVC
     CFG -.-> AUTHL
@@ -70,7 +68,7 @@ flowchart TD
 | Layer | Responsibility |
 |-------|----------------|
 | `config/` | Loads and validates environment configuration. |
-| `database/` | PostgreSQL (Prisma) and Redis client setup. |
+| `database/` | PostgreSQL (Prisma) client setup. |
 | `auth/` | OAuth flow with PKCE, session issuance/validation, AES-256-GCM crypto, and GitLab token refresh. |
 | `services/` | `GitLabService` — the **only** component that calls the GitLab REST API. |
 | `repositories/` | Persistence for users, OAuth accounts, sessions, and audit logs. |
@@ -86,15 +84,14 @@ sequenceDiagram
     participant Srv as MCP Server
     participant GL as GitLab
     participant DB as PostgreSQL
-    participant RD as Redis
 
     User->>Srv: GET /auth/login
-    Srv->>RD: store state + PKCE verifier (10-min TTL)
+    Srv->>DB: store state + PKCE verifier (10-min TTL)
     Srv-->>User: 302 redirect to GitLab authorize
     User->>GL: authorize (approve)
     GL-->>User: redirect to /auth/callback?code&state
     User->>Srv: GET /auth/callback?code&state
-    Srv->>RD: validate + consume state
+    Srv->>DB: validate + consume state
     Srv->>GL: exchange code (+ secret + PKCE verifier)
     GL-->>Srv: access + refresh tokens
     Srv->>GL: GET /user (read_user)
@@ -117,7 +114,7 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     Client->>Srv: POST /mcp (Authorization: Bearer <token>, tool call)
-    Srv->>Auth: validate bearer (Redis cache → Postgres)
+    Srv->>Auth: validate bearer (Postgres)
     Auth-->>Srv: resolved user (or 401)
     Srv->>Srv: Zod-validate tool input
     Srv->>TP: get GitLab access token (refresh if near expiry)

@@ -19,7 +19,6 @@ User → GitLab OAuth Login → MCP Server → GitLab REST API
 - MCP TypeScript SDK (`@modelcontextprotocol/sdk`)
 - Express (HTTP layer + MCP Streamable HTTP transport)
 - PostgreSQL + Prisma ORM
-- Redis (session cache)
 - Vitest (tests), Docker Compose (deploy)
 
 ## Architecture (clean / layered)
@@ -27,7 +26,7 @@ User → GitLab OAuth Login → MCP Server → GitLab REST API
 ```
 src/
   config/         env loading & validation (zod) — import from here, never read process.env elsewhere
-  database/       prisma + redis client singletons
+  database/       prisma client singleton
   auth/           OAuth flow, PKCE, session service, AES-256-GCM crypto, token refresh
   services/       GitLabService — the ONLY place allowed to call the GitLab REST API
   repositories/   Prisma data-access (user, oauthAccount, session, auditLog)
@@ -93,12 +92,12 @@ npm run build              # tsc
 npm start                  # run built server
 npm test                   # vitest run
 npm run test:watch
-docker compose up          # full stack (postgres + redis + app, runs migrations)
+docker compose up          # full stack (postgres + app, runs migrations)
 ```
 
 ## Environment
 
-See `.env.example`. Key vars: `DATABASE_URL`, `REDIS_URL`, `GITLAB_BASE_URL`
+See `.env.example`. Key vars: `DATABASE_URL`, `GITLAB_BASE_URL`
 (default `https://gitlab.com`), `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET`,
 `GITLAB_REDIRECT_URI`, `ENCRYPTION_KEY` (32-byte base64/hex), `SESSION_TTL_HOURS`,
 `PORT`, `PUBLIC_BASE_URL`.

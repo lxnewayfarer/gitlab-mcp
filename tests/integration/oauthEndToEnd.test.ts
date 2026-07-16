@@ -6,7 +6,7 @@
  * DI pattern established in authCallbackOAuth.test.ts.
  *
  * GitLab is never called — exchangeCode and fetchGitLabUser are injected fakes.
- * Redis and Prisma are never touched — all stores are in-memory Maps.
+ * The database is never touched — all stores are in-memory Maps.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -114,7 +114,7 @@ function makeInMemoryStores() {
     },
   };
 
-  // --- auth code store (short-lived codes, Redis-backed in prod) ---
+  // --- auth code store (short-lived codes, Postgres-backed in prod) ---
   const codeMap = new Map<string, any>();
   const codeStore = {
     async issue(data: any): Promise<string> {

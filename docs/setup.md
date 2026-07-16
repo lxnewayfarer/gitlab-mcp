@@ -9,7 +9,7 @@ and via Docker Compose.
 |-------------|---------|-------|
 | Node.js | 22+ | Only needed for local (non-Docker) development. |
 | npm | 10+ | Ships with Node 22. |
-| Docker + Docker Compose | recent | For the Postgres/Redis datastores and/or the full stack. |
+| Docker + Docker Compose | recent | For the Postgres datastore and/or the full stack. |
 | A GitLab OAuth application | — | See [oauth.md](./oauth.md). |
 
 ## Environment variables
@@ -26,7 +26,6 @@ cp .env.example .env
 | `PORT` | Port the HTTP server listens on. | `3000` |
 | `PUBLIC_BASE_URL` | Public base URL the server is reached at. Used to build the OAuth redirect and the MCP endpoint URL shown to users. | `http://localhost:3000` |
 | `DATABASE_URL` | PostgreSQL connection string. | `postgresql://gitlab_mcp:gitlab_mcp@localhost:5432/gitlab_mcp?schema=public` |
-| `REDIS_URL` | Redis connection string (session cache + OAuth state). | `redis://localhost:6379` |
 | `GITLAB_BASE_URL` | Base URL of the GitLab instance. | `https://gitlab.com` |
 | `GITLAB_CLIENT_ID` | OAuth Application ID from GitLab. | — (required) |
 | `GITLAB_CLIENT_SECRET` | OAuth Application Secret from GitLab. | — (required) |
@@ -57,8 +56,8 @@ works, e.g. `openssl rand -base64 32`.)
 Run the datastores in Docker, and the app directly via Node for fast iteration:
 
 ```bash
-# 1. Start Postgres + Redis only
-docker compose up -d postgres redis
+# 1. Start Postgres only
+docker compose up -d postgres
 
 # 2. Install dependencies
 npm install
@@ -78,7 +77,7 @@ The server starts on `http://localhost:3000`. Begin the login flow at
 
 ## Docker (full stack)
 
-To run everything (Postgres, Redis, and the app) in containers:
+To run everything (Postgres and the app) in containers:
 
 ```bash
 docker compose up --build
@@ -142,7 +141,6 @@ for the full flow and common pitfalls.
 | Symptom | Likely cause / fix |
 |---------|-------------------|
 | `Can't reach database server` | Postgres isn't up or `DATABASE_URL` host is wrong. For local dev the host is `localhost`; inside Docker Compose the app uses `postgres` as the host. Run `docker compose ps` to verify health. |
-| `ECONNREFUSED` to Redis | Redis isn't running or `REDIS_URL` is wrong. Start it with `docker compose up -d redis`. |
 | `ENCRYPTION_KEY must decode to 32 bytes` | The key isn't a valid 32-byte hex/base64 string. Regenerate with `openssl rand -hex 32`. |
 | OAuth redirect error / mismatch | `GITLAB_REDIRECT_URI` must exactly match the redirect URI registered on the GitLab OAuth app. See [oauth.md](./oauth.md). |
 | Migrations not applied | Ensure the DB is reachable, then run `npm run db:deploy` (or restart the container so the entrypoint runs). |

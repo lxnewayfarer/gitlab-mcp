@@ -61,8 +61,9 @@ Authorization Server** layered over GitLab, so clients never paste a token:
 
 - **PKCE (S256)** is used on the authorization code exchange, protecting against
   code interception.
-- The OAuth **`state`** parameter is **single-use**, stored in Redis with a
-  **10-minute TTL**, and validated on callback to prevent CSRF.
+- The OAuth **`state`** parameter is **single-use**, stored in Postgres,
+  single-use via atomic delete, with a 10-minute TTL, and validated on
+  callback to prevent CSRF.
 - The client is **confidential**: the token exchange authenticates with
   `GITLAB_CLIENT_SECRET` in addition to PKCE.
 

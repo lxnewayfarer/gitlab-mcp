@@ -61,7 +61,7 @@ function buildApp(pending: Record<string, { verifier: string }>) {
     updateTokens: vi.fn(),
   } as any;
 
-  // Inject a no-op pendingStore so the test is deterministic and never touches Redis.
+  // Inject a no-op pendingStore so the test is deterministic and never touches the database.
   const pendingStore = {
     take: vi.fn(async () => null),
     save: vi.fn(async () => undefined),
