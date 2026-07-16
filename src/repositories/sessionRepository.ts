@@ -27,21 +27,12 @@ export function sessionRepository(db: PrismaClient = getPrisma()) {
       });
     },
 
-    /**
-     * Revoke every active session for a user. Returns the affected token hashes
-     * so the caller can purge them from the session cache.
-     */
-    async revokeAllForUser(userId: string, when: Date): Promise<string[]> {
-      const active = await db.session.findMany({
-        where: { userId, revokedAt: null },
-        select: { tokenHash: true },
-      });
-      if (active.length === 0) return [];
+    /** Revoke every active session for a user. */
+    async revokeAllForUser(userId: string, when: Date): Promise<void> {
       await db.session.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: when },
       });
-      return active.map((s) => s.tokenHash);
     },
   };
 }
