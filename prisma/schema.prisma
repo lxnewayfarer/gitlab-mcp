@@ -119,3 +119,40 @@ model OAuthRefreshToken {
   @@index([expiresAt])
   @@map("oauth_refresh_tokens")
 }
+
+model OAuthState {
+  state     String   @id
+  verifier  String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("oauth_states")
+}
+
+model OAuthPending {
+  state         String   @id
+  clientId      String
+  redirectUri   String
+  clientState   String?
+  codeChallenge String
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("oauth_pending")
+}
+
+model OAuthCode {
+  codeHash        String   @id
+  clientId        String
+  redirectUri     String
+  codeChallenge   String
+  userId          String
+  sessionTokenEnc String
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("oauth_codes")
+}

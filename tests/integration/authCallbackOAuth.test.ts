@@ -91,10 +91,10 @@ describe("/auth/callback OAuth branch", () => {
     const exchangeCode = vi.fn(async () => ({ tokens: { access_token: "gl", token_type: "bearer" }, expiresAt: null }));
     const fetchGitLabUser = vi.fn(async () => ({ id: 1, username: "alice", name: "Alice", email: null }));
 
-    // Simulate pendingStore failure (e.g. Redis unavailable)
+    // Simulate pendingStore failure (e.g. store unavailable)
     const brokenPendingStore = {
       save: async () => {},
-      take: async () => { throw new Error("Redis unavailable"); },
+      take: async () => { throw new Error("store unavailable"); },
     };
 
     const app = express();

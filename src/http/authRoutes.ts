@@ -105,7 +105,7 @@ export function authRoutes(deps?: AuthRoutesDeps): Router {
       });
 
       // OAuth-client branch: a parked authorize request → issue our code & redirect back.
-      // If pendingStore is unavailable (e.g. Redis down), treat as "no parked request"
+      // If pendingStore is unavailable (e.g. store error), treat as "no parked request"
       // and fall through to the HTML page — never a 502.
       clearStateCookie(res);
       const parked = await pendingStore.take(state).catch(() => null);

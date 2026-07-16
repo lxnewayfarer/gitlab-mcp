@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { setConfig, loadConfig } from "../../src/config/index.js";
 import { authCodeStore } from "../../src/auth/authCodeStore.js";
-import { sha256 } from "../../src/auth/crypto.js";
 
 beforeEach(() => {
   setConfig(loadConfig({
@@ -10,15 +9,26 @@ beforeEach(() => {
   } as NodeJS.ProcessEnv));
 });
 
-function fakeRedis() {
-  const m = new Map<string, string>();
-  const redis = {
-    async set(k: string, v: string) { m.set(k, v); },
-    async get(k: string) { return m.get(k) ?? null; },
-    async del(k: string) { m.delete(k); },
-  } as any;
-  redis._testMap = m;
-  return redis;
+// In-memory fake of oauthCodeRepository; exposes rows for at-rest assertions.
+function fakeRepo() {
+  const rows = new Map<string, any>();
+  return {
+    rows,
+    async create(row: any) { rows.set(row.codeHash, { ...row }); },
+    async peekChallengeValid(codeHash: string, now: Date) {
+      const r = rows.get(codeHash);
+      if (!r || r.expiresAt.getTime() <= now.getTime()) return null;
+      return r.codeChallenge;
+    },
+    async takeValid(codeHash: string, now: Date) {
+      const r = rows.get(codeHash);
+      if (!r) return null;
+      rows.delete(codeHash);
+      if (r.expiresAt.getTime() <= now.getTime()) return null;
+      return { clientId: r.clientId, redirectUri: r.redirectUri, codeChallenge: r.codeChallenge, userId: r.userId, sessionTokenEnc: r.sessionTokenEnc };
+    },
+    async deleteExpired() {},
+  };
 }
 
 const data = {
@@ -28,23 +38,25 @@ const data = {
 
 describe("authCodeStore", () => {
   it("issues a code, peeks challenge, consumes once returning data", async () => {
-    const redis = fakeRedis();
-    const store = authCodeStore(redis);
+    const repo = fakeRepo();
+    const store = authCodeStore(repo as any);
     const code = await store.issue(data);
 
-    // Assert that sessionToken is encrypted at rest (not plaintext)
-    const storedJson = redis._testMap.get("oauth:code:" + sha256(code));
-    const storedParsed = JSON.parse(storedJson!);
-    expect(storedParsed.sessionToken).not.toBe("raw-session-token");
+    // sessionToken is encrypted at rest (not plaintext) in sessionTokenEnc
+    const stored = [...repo.rows.values()][0];
+    expect(stored.sessionTokenEnc).not.toBe("raw-session-token");
 
     expect(await store.peekChallenge(code)).toBe("chal");
     const got = await store.consume(code);
-    expect(got).toEqual(data);
+    expect(got).toMatchObject({
+      clientId: "c1", redirectUri: "http://cb", codeChallenge: "chal",
+      userId: "u1", sessionToken: "raw-session-token",
+    });
     expect(await store.consume(code)).toBeNull(); // single-use
   });
 
   it("returns null for unknown code", async () => {
-    const store = authCodeStore(fakeRedis());
+    const store = authCodeStore(fakeRepo() as any);
     expect(await store.consume("nope")).toBeNull();
     expect(await store.peekChallenge("nope")).toBeNull();
   });

@@ -5,11 +5,10 @@ using Docker Compose.
 
 ## Overview
 
-The stack consists of three services:
+The stack consists of two services:
 
 - **app** — the Node.js MCP server (stateless).
 - **postgres** — durable storage for users, OAuth accounts, sessions, audit logs.
-- **redis** — session cache and short-lived OAuth `state` storage.
 
 Migrations are applied automatically on app startup via the container
 entrypoint, which runs `prisma migrate deploy`.
@@ -57,8 +56,6 @@ Two named volumes hold durable state:
 
 - `pgdata` — PostgreSQL data: users, encrypted OAuth accounts, sessions, and
   **audit logs**.
-- `redisdata` — Redis AOF (cache + OAuth state; can be rebuilt, but persisting
-  avoids dropping in-flight logins on restart).
 
 Back up PostgreSQL regularly (it holds the audit trail and account records):
 
@@ -71,13 +68,18 @@ Store backups securely — they contain encrypted tokens (still protected by
 
 ## Scaling
 
-The app is **stateless**: all session state lives in PostgreSQL (source of
-truth) with a Redis cache. You can therefore run **multiple app replicas**
-behind a load balancer. All replicas must share the same `DATABASE_URL`,
-`REDIS_URL`, and `ENCRYPTION_KEY`.
+The server keeps **all** state in PostgreSQL — sessions, OAuth accounts, and
+the ephemeral OAuth stores (state, PKCE verifiers, pending authorize requests,
+authorization codes) all live in the database, not in an in-process cache.
+There is no shared cache layer to keep in sync across processes, so run a
+**single app instance**. The state that must survive an app restart lives in
+PostgreSQL; the environment that must stay stable across a restart is
+`DATABASE_URL` and `ENCRYPTION_KEY` — if either changes, sessions and
+previously stored tokens become unusable.
 
-To avoid concurrent `migrate deploy` races across replicas at startup, run
-migrations as a one-shot job before scaling up, or ensure only one replica runs
+To avoid concurrent `migrate deploy` races at startup if you do run more than
+one container transiently (e.g. during a rolling redeploy), run migrations as
+a one-shot job before starting new instances, or ensure only one instance runs
 the entrypoint migration step.
 
 ## Health checks

@@ -26,7 +26,7 @@ User → GitLab OAuth Login → MCP Server → GitLab REST API
 - **Real GitLab authorization** — every action runs as the authenticated user
   with their own token; project access is checked before each call.
 - **Audit logging** — every tool call recorded in PostgreSQL (secrets stripped).
-- **Streamable HTTP MCP transport**, PostgreSQL + Prisma, Redis session cache.
+- **Streamable HTTP MCP transport**, PostgreSQL + Prisma.
 - **Docker Compose** one-command deploy. Vitest unit + integration tests.
 
 ## The 20 tools
@@ -65,7 +65,7 @@ User → GitLab OAuth Login → MCP Server → GitLab REST API
    ```
    For self-hosted GitLab, also set `GITLAB_BASE_URL`.
 
-3. **Run the stack** (Postgres + Redis + app, migrations run automatically):
+3. **Run the stack** (Postgres + app, migrations run automatically):
    ```bash
    docker compose up --build
    ```
@@ -96,10 +96,10 @@ To disconnect: `curl -X POST http://localhost:3000/auth/logout -H "Authorization
 
 ```bash
 # Start datastores only:
-docker compose up -d postgres redis
+docker compose up -d postgres
 
 cp .env.example .env          # set GitLab creds + ENCRYPTION_KEY
-# point DATABASE_URL/REDIS_URL at localhost (the defaults already do)
+# point DATABASE_URL at localhost (the defaults already do)
 
 npm install
 npm run db:generate

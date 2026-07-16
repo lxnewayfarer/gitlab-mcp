@@ -10,7 +10,7 @@ These invariants hold throughout the codebase:
 
 1. **Only `GitLabService` talks to GitLab.** All outbound GitLab REST calls go
    through one service layer (`src/services/gitlabService.ts`).
-2. **Only 9 MCP tools exist.** No raw API proxy, no arbitrary calls.
+2. **Only 20 MCP tools exist.** No raw API proxy, no arbitrary calls.
 3. **Actions run as the user.** Every call uses the user's own OAuth token; the
    server holds no privileged service token.
 4. **Tokens are encrypted at rest** (AES-256-GCM) and never logged.
@@ -29,7 +29,7 @@ flowchart TD
       Audit["audit logging"]
     end
     subgraph MCP["mcp/"]
-      Tools["9 tool definitions (Zod schemas)"]
+      Tools["20 tool definitions (Zod schemas)"]
       Handlers["tool handlers"]
     end
     subgraph SVC["services/"]
@@ -40,7 +40,6 @@ flowchart TD
     end
     subgraph DB["database/"]
       PG[("PostgreSQL")]
-      RD[("Redis")]
     end
     subgraph AUTHL["auth/"]
       OAuth["OAuth + PKCE"]
@@ -59,7 +58,6 @@ flowchart TD
     REPO --> DB
     Routes --> AUTHL
     TP --> OAuth
-    Sess --> RD
     Sess --> R
     CFG -.-> SVC
     CFG -.-> AUTHL
@@ -70,11 +68,11 @@ flowchart TD
 | Layer | Responsibility |
 |-------|----------------|
 | `config/` | Loads and validates environment configuration. |
-| `database/` | PostgreSQL (Prisma) and Redis client setup. |
+| `database/` | PostgreSQL (Prisma) client setup. |
 | `auth/` | OAuth flow with PKCE, session issuance/validation, AES-256-GCM crypto, and GitLab token refresh. |
 | `services/` | `GitLabService` — the **only** component that calls the GitLab REST API. |
 | `repositories/` | Persistence for users, OAuth accounts, sessions, and audit logs. |
-| `mcp/` | The 9 tool definitions (Zod-validated) and their handlers. |
+| `mcp/` | The 20 tool definitions (Zod-validated) and their handlers. |
 | `middleware/` | Bearer-token authentication, error mapping, and audit logging. |
 | `http/` | Express app wiring: `/auth` routes, the `/mcp` endpoint, and `/healthz`. It also mounts the SDK `mcpAuthRouter`, which serves the server's own OAuth Authorization Server endpoints — `/authorize`, `/token`, `/register`, `/revoke`, and the `/.well-known/*` discovery documents — for MCP clients that authenticate via OAuth. |
 
@@ -86,15 +84,14 @@ sequenceDiagram
     participant Srv as MCP Server
     participant GL as GitLab
     participant DB as PostgreSQL
-    participant RD as Redis
 
     User->>Srv: GET /auth/login
-    Srv->>RD: store state + PKCE verifier (10-min TTL)
+    Srv->>DB: store state + PKCE verifier (10-min TTL)
     Srv-->>User: 302 redirect to GitLab authorize
     User->>GL: authorize (approve)
     GL-->>User: redirect to /auth/callback?code&state
     User->>Srv: GET /auth/callback?code&state
-    Srv->>RD: validate + consume state
+    Srv->>DB: validate + consume state
     Srv->>GL: exchange code (+ secret + PKCE verifier)
     GL-->>Srv: access + refresh tokens
     Srv->>GL: GET /user (read_user)
@@ -117,7 +114,7 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     Client->>Srv: POST /mcp (Authorization: Bearer <token>, tool call)
-    Srv->>Auth: validate bearer (Redis cache → Postgres)
+    Srv->>Auth: validate bearer (Postgres)
     Auth-->>Srv: resolved user (or 401)
     Srv->>Srv: Zod-validate tool input
     Srv->>TP: get GitLab access token (refresh if near expiry)
