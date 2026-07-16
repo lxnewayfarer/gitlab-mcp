@@ -1,7 +1,7 @@
 import { getConfig } from "./config/index.js";
 import { createApp } from "./http/app.js";
 import { disconnectPrisma } from "./database/prisma.js";
-import { disconnectRedis } from "./database/redis.js";
+import { startOAuthSweep } from "./auth/oauthSweep.js";
 
 const cfg = getConfig();
 const app = createApp();
@@ -12,10 +12,13 @@ const server = app.listen(cfg.PORT, () => {
   console.log(`[gitlab-mcp] log in at ${cfg.PUBLIC_BASE_URL}/auth/login`);
 });
 
+const stopSweep = startOAuthSweep();
+
 async function shutdown(signal: string): Promise<void> {
   console.log(`[gitlab-mcp] ${signal} received, shutting down...`);
   server.close();
-  await Promise.allSettled([disconnectPrisma(), disconnectRedis()]);
+  stopSweep();
+  await disconnectPrisma();
   process.exit(0);
 }
 
