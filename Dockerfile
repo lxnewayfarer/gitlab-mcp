@@ -7,8 +7,12 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 # Generate Prisma client, then build TypeScript.
+# Force the CLI engine (schema-engine) target for the runtime platform, so the
+# debian-openssl-3.0.x schema-engine is fetched now instead of at container
+# start. Without this, `native` resolves to the build host's OpenSSL (1.1.x)
+# and `migrate deploy` tries to download the 3.0.x engine at runtime -> crash.
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN PRISMA_CLI_BINARY_TARGETS=debian-openssl-3.0.x npx prisma generate
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
@@ -19,7 +23,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN PRISMA_CLI_BINARY_TARGETS=debian-openssl-3.0.x npx prisma generate
 
 # ── Runtime stage ──────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS runtime
@@ -39,10 +43,6 @@ COPY --chown=node:node docker/entrypoint.sh ./docker/entrypoint.sh
 RUN chmod +x ./docker/entrypoint.sh \
     && chown -R node:0 /app \
     && chmod -R g=u /app
-
-# Movement engine is baked in at build time; never let the runtime download one.
-ENV PRISMA_ENGINES_MIRROR=disabled \
-    PRISMA_CLI_QUERY_ENGINE_TYPE=library
 
 # Run as the non-root node user (uid 1000); the cluster may override this.
 USER node
