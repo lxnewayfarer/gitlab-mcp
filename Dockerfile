@@ -35,9 +35,16 @@ COPY --chown=node:node --from=build /app/dist ./dist
 COPY --chown=node:node prisma ./prisma
 COPY --chown=node:node package.json ./
 COPY --chown=node:node docker/entrypoint.sh ./docker/entrypoint.sh
-RUN chmod +x ./docker/entrypoint.sh && chown -R node:node /app
 
-# Run as the non-root node user.
+RUN chmod +x ./docker/entrypoint.sh \
+    && chown -R node:0 /app \
+    && chmod -R g=u /app
+
+# Movement engine is baked in at build time; never let the runtime download one.
+ENV PRISMA_ENGINES_MIRROR=disabled \
+    PRISMA_CLI_QUERY_ENGINE_TYPE=library
+
+# Run as the non-root node user (uid 1000); the cluster may override this.
 USER node
 
 EXPOSE 3000
