@@ -7,7 +7,7 @@ import {
   listMergeRequests,
 } from "../../src/mcp/tools/mergeRequests.js";
 import { addComment } from "../../src/mcp/tools/comments.js";
-import { getPipelineStatus, listPipelines, getPipelineJobs, getJobLog } from "../../src/mcp/tools/pipelines.js";
+import { getPipelineStatus, listPipelines, getPipelineJobs, getJobLog, retryJob } from "../../src/mcp/tools/pipelines.js";
 import { getFileContent } from "../../src/mcp/tools/files.js";
 import { assignReviewer, setLabels } from "../../src/mcp/tools/reviewersLabels.js";
 import { getCurrentUser as getCurrentUserTool, findUser } from "../../src/mcp/tools/users.js";
@@ -112,6 +112,10 @@ function makeStub() {
       // Includes an ANSI color sequence that the tool must strip.
       return "\u001b[31mboom\u001b[0m\nstack trace line\n";
     }),
+    retryJob: vi.fn(async () => {
+      calls.push("retryJob");
+      return { ...JOB, id: 201, status: "pending" };
+    }),
     getFile: vi.fn(async () => {
       calls.push("getFile");
       return {
@@ -187,6 +191,8 @@ describe("MCP tool handlers", () => {
         labels: ["bug"],
         reviewers: [2],
         assignee_id: 1,
+        remove_source_branch: true,
+        squash: true,
       },
       ctxWith(stub),
     );
@@ -199,6 +205,8 @@ describe("MCP tool handlers", () => {
       labels: ["bug"],
       reviewer_ids: [2],
       assignee_id: 1,
+      remove_source_branch: true,
+      squash: true,
     });
     expect(out).toEqual({ url: "https://gl/mr/5", id: 100, iid: 5, status: "opened" });
   });
@@ -310,6 +318,21 @@ describe("MCP tool handlers", () => {
       finished_at: "f",
     });
     expect(out.pagination.page).toBe(1);
+  });
+
+  it("retry_job: checks access, then returns the new job", async () => {
+    const { stub, calls } = makeStub();
+    const out: any = await retryJob.handler({ project_id: 7, job_id: 200 }, ctxWith(stub));
+    expect(calls).toEqual(["assertProjectAccess", "retryJob"]);
+    expect(stub.retryJob).toHaveBeenCalledWith(7, 200);
+    expect(out).toEqual({
+      id: 201,
+      name: "build",
+      stage: "build",
+      status: "pending",
+      url: "https://gl/j/200",
+      created_at: "c",
+    });
   });
 
   it("get_job_log: strips ANSI, returns tail by default with byte accounting", async () => {
@@ -638,10 +661,10 @@ describe("buildMcpServer audit wrapper", () => {
 });
 
 describe("tool registry", () => {
-  it("registers all 20 tools with unique names", () => {
-    expect(TOOLS).toHaveLength(20);
+  it("registers all 21 tools with unique names", () => {
+    expect(TOOLS).toHaveLength(21);
     const names = TOOLS.map((t) => t.name);
-    expect(new Set(names).size).toBe(20);
+    expect(new Set(names).size).toBe(21);
     for (const expected of [
       "get_current_user",
       "find_user",
@@ -653,6 +676,7 @@ describe("tool registry", () => {
       "unapprove_merge_request",
       "get_pipeline_jobs",
       "get_job_log",
+      "retry_job",
       "get_file_content",
     ]) {
       expect(names).toContain(expected);

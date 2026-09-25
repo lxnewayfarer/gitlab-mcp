@@ -36,6 +36,8 @@ describe("GitLabService", () => {
       labels: ["a", "b"],
       reviewer_ids: [1, 2],
       assignee_id: 5,
+      remove_source_branch: true,
+      squash: true,
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -54,6 +56,8 @@ describe("GitLabService", () => {
       labels: "a,b", // joined with comma
       reviewer_ids: [1, 2],
       assignee_id: 5,
+      remove_source_branch: true,
+      squash: true,
     });
   });
 
@@ -170,6 +174,16 @@ describe("GitLabService", () => {
     expect(String(url)).toBe("https://gitlab.example.com/api/v4/projects/7/jobs/123/trace");
     expect(opts.headers.Authorization).toBe("Bearer tok");
     expect(trace).toBe("line1\nline2\n");
+  });
+
+  it("retryJob POSTs to the job retry path and returns the new job", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ id: 124, name: "build", status: "pending" }, { status: 201 }));
+    const svc = new GitLabService("tok", fetchImpl as any);
+    const job = await svc.retryJob("group/proj", 123);
+    const [url, opts] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe("https://gitlab.example.com/api/v4/projects/group%2Fproj/jobs/123/retry");
+    expect(opts.method).toBe("POST");
+    expect(job.id).toBe(124);
   });
 
   it("getJobTrace throws GitLabApiError on 404", async () => {

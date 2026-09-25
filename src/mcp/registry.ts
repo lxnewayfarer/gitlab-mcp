@@ -6,7 +6,7 @@ import {
   listMergeRequests,
 } from "./tools/mergeRequests.js";
 import { addComment } from "./tools/comments.js";
-import { getPipelineStatus, listPipelines, getPipelineJobs, getJobLog } from "./tools/pipelines.js";
+import { getPipelineStatus, listPipelines, getPipelineJobs, getJobLog, retryJob } from "./tools/pipelines.js";
 import { getFileContent } from "./tools/files.js";
 import { assignReviewer, setLabels } from "./tools/reviewersLabels.js";
 import { getCurrentUser, findUser } from "./tools/users.js";
@@ -15,10 +15,10 @@ import { listMergeRequestDiscussions, replyToDiscussion } from "./tools/discussi
 import { approveMergeRequest, unapproveMergeRequest } from "./tools/approvals.js";
 
 /**
- * The complete, intentionally-curated tool surface (20 tools). Nothing outside
+ * The complete, intentionally-curated tool surface (21 tools). Nothing outside
  * this list is exposed — no raw API proxy, no admin/destructive operations.
  * Read + diff + discussion-reply + approve operations on merge requests,
- * read-only pipeline/job/file inspection, plus bounded user lookup.
+ * pipeline/job/file inspection plus job retry, and bounded user lookup.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const TOOLS: ToolDefinition<any>[] = [
@@ -31,6 +31,7 @@ export const TOOLS: ToolDefinition<any>[] = [
   listPipelines,
   getPipelineJobs,
   getJobLog,
+  retryJob,
   getFileContent,
   assignReviewer,
   setLabels,

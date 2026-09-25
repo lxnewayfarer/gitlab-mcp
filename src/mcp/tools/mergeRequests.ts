@@ -18,6 +18,14 @@ export const createMergeRequest = defineTool({
       .optional()
       .describe("Reviewer user IDs"),
     assignee_id: z.number().int().positive().optional(),
+    remove_source_branch: z
+      .boolean()
+      .optional()
+      .describe("Delete the source branch when the MR is merged"),
+    squash: z
+      .boolean()
+      .optional()
+      .describe("Squash commits into a single commit when the MR is merged"),
   }),
   async handler(input, ctx) {
     await ctx.gitlab.assertProjectAccess(input.project_id);
@@ -29,6 +37,8 @@ export const createMergeRequest = defineTool({
       labels: input.labels,
       reviewer_ids: input.reviewers,
       assignee_id: input.assignee_id,
+      remove_source_branch: input.remove_source_branch,
+      squash: input.squash,
     });
     return { url: mr.web_url, id: mr.id, iid: mr.iid, status: mr.state };
   },

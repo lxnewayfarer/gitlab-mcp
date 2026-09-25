@@ -1,6 +1,6 @@
 {
   "name": "gitlab-mcp-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Production-ready MCP server for GitLab with per-user OAuth 2.0",
   "type": "module",
   "engines": {

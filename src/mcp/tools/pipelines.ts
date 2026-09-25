@@ -161,3 +161,25 @@ export const getJobLog = defineTool({
     };
   },
 });
+
+export const retryJob = defineTool({
+  name: "retry_job",
+  description:
+    "Retry a CI job (e.g. a failed one) as the authenticated user. GitLab creates a new job; its id is returned for use with get_job_log.",
+  schema: z.object({
+    project_id: projectId,
+    job_id: z.number().int().positive(),
+  }),
+  async handler(input, ctx) {
+    await ctx.gitlab.assertProjectAccess(input.project_id);
+    const j = await ctx.gitlab.retryJob(input.project_id, input.job_id);
+    return {
+      id: j.id,
+      name: j.name,
+      stage: j.stage,
+      status: j.status,
+      url: j.web_url,
+      created_at: j.created_at,
+    };
+  },
+});

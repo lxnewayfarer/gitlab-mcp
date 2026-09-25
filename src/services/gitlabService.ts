@@ -295,6 +295,8 @@ export class GitLabService {
       labels?: string[];
       reviewer_ids?: number[];
       assignee_id?: number;
+      remove_source_branch?: boolean;
+      squash?: boolean;
     },
   ): Promise<MergeRequest> {
     const { data } = await this.requestData<MergeRequest>(
@@ -309,6 +311,8 @@ export class GitLabService {
           labels: input.labels?.join(","),
           reviewer_ids: input.reviewer_ids,
           assignee_id: input.assignee_id,
+          remove_source_branch: input.remove_source_branch,
+          squash: input.squash,
         },
       },
     );
@@ -498,6 +502,18 @@ export class GitLabService {
       "GET",
       `/projects/${this.encodeProjectId(projectId)}/jobs/${jobId}/trace`,
     );
+  }
+
+  /**
+   * Retry a CI job. GitLab creates a new job and returns it (new id); the
+   * original job is left as-is.
+   */
+  async retryJob(projectId: string | number, jobId: number): Promise<Job> {
+    const { data } = await this.requestData<Job>(
+      "POST",
+      `/projects/${this.encodeProjectId(projectId)}/jobs/${jobId}/retry`,
+    );
+    return data;
   }
 
   // --- repository files ---------------------------------------------------
